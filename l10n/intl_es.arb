@@ -1,0 +1,7 @@
+{
+  "@@locale": "es",
+  "appTitle": "Kanakku Rastreador de Gastos",
+  "loginEmail": "Correo electrónico",
+  "loginPassword": "Contraseña",
+  "errorGeneric": "Algo salió mal"
+}

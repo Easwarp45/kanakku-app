@@ -1,0 +1,7 @@
+{
+  "@@locale": "en",
+  "appTitle": "Kanakku Expense Tracker",
+  "loginEmail": "Email",
+  "loginPassword": "Password",
+  "errorGeneric": "Something went wrong"
+}
