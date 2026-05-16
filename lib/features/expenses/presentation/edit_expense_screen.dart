@@ -9,18 +9,19 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../data/expense_service.dart';
 
-class AddExpenseScreen extends ConsumerStatefulWidget {
-  const AddExpenseScreen({super.key});
+class EditExpenseScreen extends ConsumerStatefulWidget {
+  final Map<String, dynamic> expense;
+  const EditExpenseScreen({super.key, required this.expense});
 
   @override
-  ConsumerState<AddExpenseScreen> createState() => _AddExpenseScreenState();
+  ConsumerState<EditExpenseScreen> createState() => _EditExpenseScreenState();
 }
 
-class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
+class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _amountController = TextEditingController();
-  final _descController = TextEditingController();
-  final ValueNotifier<String> _selectedCategory = ValueNotifier<String>('Food & Dining');
+  late final TextEditingController _amountController;
+  late final TextEditingController _descController;
+  late final ValueNotifier<String> _selectedCategory;
   bool _isSaving = false;
 
   final List<String> _categories = [
@@ -44,25 +45,50 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
     'Utilities': 'utilities',
   };
 
-  Future<void> _saveExpense() async {
+  // Reverse map: DB enum → display name
+  static const _enumToCategory = <String, String>{
+    'food': 'Food & Dining',
+    'transport': 'Transportation',
+    'housing': 'Housing',
+    'entertainment': 'Entertainment',
+    'healthcare': 'Health',
+    'shopping': 'Shopping',
+    'utilities': 'Utilities',
+    'other': 'Food & Dining',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    final amount = widget.expense['amount']?.toString() ?? '0.00';
+    _amountController = TextEditingController(text: amount);
+    // DB column is 'description', not 'title'
+    _descController = TextEditingController(
+      text: widget.expense['description']?.toString() ?? ''
+    );
+    
+    // Map DB enum value back to display name
+    String dbCat = widget.expense['category']?.toString() ?? 'other';
+    String displayCat = _enumToCategory[dbCat] ?? _categories.first;
+    _selectedCategory = ValueNotifier<String>(displayCat);
+  }
+
+  Future<void> _updateExpense() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isSaving = true);
       
       try {
         final amount = double.tryParse(_amountController.text) ?? 0.0;
-        if (amount <= 0) throw Exception('Please enter a valid amount');
-
-        // Send ONLY columns that exist in the DB schema:
-        // amount, category (expense_category enum), description, payment_method, expense_date
-        await ref.read(expenseServiceProvider).addExpense({
-          'description': _descController.text.trim(),
-          'amount': amount,
-          'category': _categoryToEnum[_selectedCategory.value] ?? 'other',
-          'payment_method': 'upi',
-          'expense_date': DateTime.now().toIso8601String().split('T')[0],
-        });
+        await ref.read(expenseServiceProvider).updateExpense(
+          widget.expense['id'].toString(),
+          {
+            'description': _descController.text.trim(),
+            'amount': amount,
+            'category': _categoryToEnum[_selectedCategory.value] ?? 'other',
+          }
+        );
         
-        // Force refresh the stream to show new data immediately
+        // Refresh the stream to show updated data
         ref.invalidate(expensesStreamProvider);
         
         if (mounted) {
@@ -71,7 +97,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error saving expense: $e'), backgroundColor: AppColors.accentRose),
+            SnackBar(content: Text('Error updating expense: $e'), backgroundColor: AppColors.accentRose),
           );
         }
       } finally {
@@ -93,7 +119,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
           onPressed: () => context.pop(),
         ),
         title: const Text(
-          'Log Expense',
+          'Edit Expense',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.w600,
@@ -135,26 +161,15 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
                       const SizedBox(height: 12),
                       _buildCategorySelector(),
                       const SizedBox(height: 24),
-                      _buildDateSelector(),
-                      const SizedBox(height: 18),
-                      const Divider(color: AppColors.border),
-                      const SizedBox(height: 14),
-                      Row(
-                        children: const [
-                          Icon(LucideIcons.camera, color: AppColors.accentCyan, size: 18),
-                          SizedBox(width: 10),
-                          Text('Attach Receipt', style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600)),
-                        ],
-                      ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 32),
                 GradientButton(
-                  text: 'Save Expense',
-                  icon: LucideIcons.check,
+                  text: 'Update Expense',
+                  icon: LucideIcons.save,
                   isLoading: _isSaving,
-                  onPressed: _saveExpense,
+                  onPressed: _updateExpense,
                 ),
               ],
             ),
@@ -253,49 +268,6 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
           );
         },
       ),
-      ),
-    );
-  }
-
-  Widget _buildDateSelector() {
-    return GestureDetector(
-      onTap: () async {
-        await showDatePicker(
-          context: context,
-          initialDate: DateTime.now(),
-          firstDate: DateTime(2020),
-          lastDate: DateTime(2100),
-          builder: (context, child) {
-            return Theme(
-              data: Theme.of(context).copyWith(
-                colorScheme: const ColorScheme.dark(
-                  primary: AppColors.accentCyan,
-                  surface: AppColors.bgElevated,
-                  onSurface: AppColors.textPrimary,
-                ),
-              ),
-              child: child!,
-            );
-          },
-        );
-      },
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Date', style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            decoration: BoxDecoration(color: AppColors.bgSecondary, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.border)),
-            child: const Row(
-              children: [
-                Icon(LucideIcons.calendar, color: AppColors.textTertiary, size: 20),
-                SizedBox(width: 12),
-                Text('Today', style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }

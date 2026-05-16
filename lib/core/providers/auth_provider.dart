@@ -1,63 +1,65 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:state_notifier/state_notifier.dart';
-import '../../data/repositories/auth_repository.dart';
-import '../network/dio_client.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../database/supabase_service.dart';
 
-final dioProvider = Provider((ref) => DioClient.getInstance());
+final authStateProvider = StreamProvider<AuthState>((ref) {
+  return Supabase.instance.client.auth.onAuthStateChange;
+});
 
-final authRepositoryProvider = Provider((ref) => AuthRepository(ref.read(dioProvider)));
+final currentUserProvider = Provider<User?>((ref) {
+  final authState = ref.watch(authStateProvider).value;
+  return authState?.session?.user ?? Supabase.instance.client.auth.currentUser;
+});
 
-class AuthState {
-  final bool isLoading;
-  final bool isAuthenticated;
-  final String? token;
+final userProfileProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
+  final user = ref.watch(currentUserProvider);
+  if (user == null) return null;
+  return ref.read(authServiceProvider).getProfileData(user.id);
+});
 
-  AuthState({this.isLoading = false, this.isAuthenticated = false, this.token});
+final authServiceProvider = Provider<AuthService>((ref) {
+  return AuthService(ref.watch(supabaseClientProvider));
+});
 
-  AuthState copyWith({bool? isLoading, bool? isAuthenticated, String? token}) =>
-      AuthState(
-        isLoading: isLoading ?? this.isLoading,
-        isAuthenticated: isAuthenticated ?? this.isAuthenticated,
-        token: token ?? this.token,
-      );
-}
+class AuthService {
+  final SupabaseClient _client;
 
-class AuthNotifier extends StateNotifier<AuthState> {
-  final AuthRepository _repo;
+  AuthService(this._client);
 
-  AuthNotifier(this._repo) : super(AuthState(isAuthenticated: _repo.isAuthenticated(), token: _repo.getToken()));
+  Future<AuthResponse> signUp(String email, String password) async {
+    return await _client.auth.signUp(
+      email: email,
+      password: password,
+    );
+  }
 
-  AuthState get current => state;
+  Future<AuthResponse> signIn(String email, String password) async {
+    return await _client.auth.signInWithPassword(
+      email: email,
+      password: password,
+    );
+  }
 
-  Future<void> login(String email, String password) async {
-    state = state.copyWith(isLoading: true);
+  Future<void> signOut() async {
+    await _client.auth.signOut();
+  }
+  
+  User? get currentUser => _client.auth.currentUser;
+
+  Future<Map<String, dynamic>?> getProfileData(String userId) async {
     try {
-      final token = await _repo.login(email, password);
-      state = state.copyWith(isLoading: false, isAuthenticated: true, token: token);
+      // Schema table is 'profiles', link is 'user_id'
+      return await _client.from('profiles').select().eq('user_id', userId).maybeSingle();
     } catch (e) {
-      state = state.copyWith(isLoading: false);
-      rethrow;
+      return null;
     }
   }
 
-  Future<void> logout() async {
-    await _repo.logout();
-    state = AuthState(isAuthenticated: false);
+  Future<void> updateProfile(String userId, Map<String, dynamic> data) async {
+    await _client.from('profiles').upsert({
+      'user_id': userId,
+      ...data,
+      'updated_at': DateTime.now().toIso8601String(),
+    }, onConflict: 'user_id');
   }
 }
-
-final authNotifierProvider = Provider<AuthNotifier>((ref) {
-  final repo = ref.read(authRepositoryProvider);
-  final notifier = AuthNotifier(repo);
-  ref.onDispose(() {
-    try {
-      notifier.dispose();
-    } catch (_) {}
-  });
-  return notifier;
-});
-
-final authStateProvider = Provider<AuthState>((ref) {
-  final notifier = ref.watch(authNotifierProvider);
-  return notifier.current;
-});

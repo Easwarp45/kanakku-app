@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 
@@ -44,15 +43,6 @@ class GlassCard extends StatelessWidget {
       child: child,
     );
 
-    // If we want actual blur
-    Widget blurredCard = ClipRRect(
-      borderRadius: BorderRadius.circular(borderRadius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16.0, sigmaY: 16.0),
-        child: cardContent,
-      ),
-    );
-
     return Container(
       margin: margin,
       child: Material(
@@ -62,7 +52,7 @@ class GlassCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(borderRadius),
           splashColor: AppColors.accentCyan.withValues(alpha: 0.1),
           highlightColor: AppColors.accentCyan.withValues(alpha: 0.05),
-          child: blurredCard,
+          child: cardContent,
         ),
       ),
     );

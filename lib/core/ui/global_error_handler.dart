@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -33,13 +32,6 @@ class GlobalErrorListener extends ConsumerWidget {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               final msg = snapshot.data!;
               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-              // Announce for accessibility
-              try {
-                SemanticsService.announce(msg, TextDirection.ltr);
-              } catch (e) {
-                // ignore: avoid_print
-                print('Semantics announce failed: $e');
-              }
             });
         }
         return child;

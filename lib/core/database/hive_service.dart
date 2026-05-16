@@ -26,12 +26,20 @@ class HiveService {
     // Register adapters
     _registerAdapters();
     
-    // Open boxes
-    _userBox = await Hive.openBox<User>(userBoxKey);
-    _expenseBox = await Hive.openBox<Expense>(expenseBoxKey);
-    _categoryBox = await Hive.openBox<Category>(categoryBoxKey);
-    _transactionBox = await Hive.openBox<Transaction>(transactionBoxKey);
-    _settingsBox = await Hive.openBox<String>(settingsBoxKey);
+    // Open boxes concurrently to reduce startup time
+    final boxes = await Future.wait([
+      Hive.openBox<User>(userBoxKey),
+      Hive.openBox<Expense>(expenseBoxKey),
+      Hive.openBox<Category>(categoryBoxKey),
+      Hive.openBox<Transaction>(transactionBoxKey),
+      Hive.openBox<String>(settingsBoxKey),
+    ]);
+
+    _userBox = boxes[0] as Box<User>;
+    _expenseBox = boxes[1] as Box<Expense>;
+    _categoryBox = boxes[2] as Box<Category>;
+    _transactionBox = boxes[3] as Box<Transaction>;
+    _settingsBox = boxes[4] as Box<String>;
   }
 
   /// Register Hive adapters for models

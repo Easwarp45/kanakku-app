@@ -1,19 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../shared/widgets/glass_card.dart';
 import '../../../../shared/widgets/custom_text_field.dart';
 import '../../../../shared/widgets/gradient_button.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/providers/auth_provider.dart';
 
-class LoginScreen extends StatefulWidget {
+class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -22,11 +25,30 @@ class _LoginScreenState extends State<LoginScreen> {
   void _login() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
-      // Mock login delay
-      await Future.delayed(const Duration(seconds: 2));
-      if (mounted) {
-        setState(() => _isLoading = false);
-        context.go('/dashboard');
+      try {
+        await ref.read(authServiceProvider).signIn(
+              _emailController.text.trim(),
+              _passwordController.text,
+            );
+        if (mounted) {
+          context.go('/dashboard');
+        }
+      } on AuthException catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(e.message), backgroundColor: AppColors.accentRose),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('An unexpected error occurred'), backgroundColor: AppColors.accentRose),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
     }
   }

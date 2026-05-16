@@ -68,7 +68,7 @@ class IncomeDetailScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 20),
-          Text('+\$16,500.00', style: AppTheme.moneyStyle.copyWith(fontSize: 38, color: Colors.white)),
+          Text('+₹16,500.00', style: AppTheme.moneyStyle.copyWith(fontSize: 38, color: Colors.white)),
           const SizedBox(height: 4),
           const Text('Oct 30, 2023 • 09:00 AM', style: TextStyle(color: Colors.white54, fontSize: 12)),
         ],
@@ -124,7 +124,7 @@ class IncomeDetailScreen extends StatelessWidget {
       {'label': 'Source', 'value': 'Global Tech Solutions Inc.'},
       {'label': 'Category', 'value': 'Salary'},
       {'label': 'Frequency', 'value': 'Monthly'},
-      {'label': 'Account', 'value': 'Corporate Centurion •••• 9002'},
+      {'label': 'Account', 'value': 'HDFC Premium •••• 9002'},
       {'label': 'Reference ID', 'value': 'TXN-2023-OCT-GTS-001'},
     ];
     return GlassCard(

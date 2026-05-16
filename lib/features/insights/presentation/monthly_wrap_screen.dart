@@ -44,19 +44,19 @@ class MonthlyWrapScreen extends StatelessWidget {
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
-        gradient: const LinearGradient(colors: [Color(0xFF0c4a6e), Color(0xFF0369a1)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        gradient: const LinearGradient(colors: [Color(0xFF0e3a4a), AppColors.accentCyan], begin: Alignment.topLeft, end: Alignment.bottomRight),
         boxShadow: [BoxShadow(color: AppColors.accentCyan.withValues(alpha: 0.25), blurRadius: 24, offset: const Offset(0, 8))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(LucideIcons.star, color: Colors.amber, size: 28),
+          const Icon(LucideIcons.trendingUp, color: AppColors.accentCyan, size: 28),
           const SizedBox(height: 16),
           const Text('A stellar performance, Executive.', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800, height: 1.3)),
           const SizedBox(height: 8),
           const Text('Your net worth surged by', style: TextStyle(color: Colors.white70, fontSize: 14)),
           const SizedBox(height: 4),
-          Text('+12.4%', style: AppTheme.moneyStyle.copyWith(fontSize: 36, color: Colors.amber)),
+          Text('+12.4%', style: AppTheme.moneyStyle.copyWith(fontSize: 36, color: AppColors.accentEmerald)),
           const SizedBox(height: 4),
           const Text('this month', style: TextStyle(color: Colors.white54, fontSize: 14)),
           const SizedBox(height: 16),
@@ -156,7 +156,7 @@ class MonthlyWrapScreen extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           const Text(
-            'Based on current burn rates and dividend forecasts, we recommend reallocating \$15,000 into the \'Vault\' to optimize tax efficiency before the year-end close.',
+            'Based on current burn rates and dividend forecasts, we recommend reallocating ₹15,000 into the \'Vault\' to optimize tax efficiency before the year-end close.',
             style: TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.5),
           ),
           const SizedBox(height: 16),
@@ -164,7 +164,7 @@ class MonthlyWrapScreen extends StatelessWidget {
             children: [
               const Icon(LucideIcons.arrowRight, color: AppColors.accentPurple, size: 16),
               const SizedBox(width: 8),
-              Text('\$15,000 to Vault', style: AppTheme.moneyStyle.copyWith(fontSize: 18, color: AppColors.accentPurple)),
+              Text('₹15,000 to Vault', style: AppTheme.moneyStyle.copyWith(fontSize: 18, color: AppColors.accentPurple)),
             ],
           ),
         ],

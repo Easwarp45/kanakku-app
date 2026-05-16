@@ -30,8 +30,8 @@ class AuthRepository {
       }
 
       return token;
-    } on DioError catch (e) {
-      if (e.type == DioErrorType.connectionTimeout || e.type == DioErrorType.receiveTimeout) {
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.receiveTimeout) {
         throw NetworkException.timeout(originalException: e);
       }
 

@@ -1,27 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../../shared/widgets/glass_card.dart';
 import '../../../shared/widgets/app_bottom_nav.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/providers/auth_provider.dart';
 
-class SettingsScreen extends StatefulWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
-  bool _haptics = true;
-  bool _highPriorityNotifs = true;
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   int _themeIndex = 0;
-  int _languageIndex = 0; // 0: English, 1: Spanish
-  int _loggingIndex = 1; // 0: Debug, 1: Info, 2: Warning
-  bool _betaFeatures = false;
-  bool _highContrast = false;
-  final double _textScale = 1.0;
-
+  int _currencyIndex = 0;
+  bool _dailyReminders = true;
+  bool _appLock = true;
+  
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -29,20 +27,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: CustomScrollView(
           slivers: [
             SliverToBoxAdapter(child: _buildHeader(context)),
-            SliverToBoxAdapter(child: const SizedBox(height: 24)),
+            SliverToBoxAdapter(child: const SizedBox(height: 4)),
             SliverToBoxAdapter(child: _buildProfileBanner(context)),
             SliverToBoxAdapter(child: const SizedBox(height: 24)),
-            SliverToBoxAdapter(child: _buildSection('Security & Privacy', _buildSecurityItems())),
-            SliverToBoxAdapter(child: _buildSection('Financial Configuration', _buildFinancialItems(context))),
-            SliverToBoxAdapter(child: _buildSection('App Customization & Features', _buildAppCustomItems())),
-            SliverToBoxAdapter(child: _buildSection('Localization & Accessibility', _buildLocalizationItems())),
-            SliverToBoxAdapter(child: _buildSection('Developer Options', _buildDeveloperItems())),
-            SliverToBoxAdapter(child: _buildSection('Account Management', _buildAccountItems(context))),
+            SliverToBoxAdapter(child: _buildSection('Preferences', _buildPreferencesItems())),
+            SliverToBoxAdapter(child: _buildSection('Categories & Budgets', _buildCategoryItems(context))),
+            SliverToBoxAdapter(child: _buildSection('Groups', _buildGroupsItems(context))),
+            SliverToBoxAdapter(child: _buildSection('Data & Security', _buildDataSecurityItems())),
+            SliverToBoxAdapter(child: _buildSection('Support & About', _buildSupportItems())),
+            SliverToBoxAdapter(child: const SizedBox(height: 12)),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Center(
+                  child: Text('Kanakku Tracker v1.0.0', style: TextStyle(color: AppColors.textTertiary, fontSize: 11)),
+                ),
+              ),
+            ),
             SliverToBoxAdapter(child: const SizedBox(height: 24)),
           ],
         ),
       ),
-      bottomNavigationBar: const AppBottomNav(currentIndex: 4),
+      bottomNavigationBar: const AppBottomNav(currentIndex: 5),
     );
   }
 
@@ -55,7 +61,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('EXECUTIVE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.accentCyan, letterSpacing: 2)),
+                Text('PREFERENCES', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.accentCyan, letterSpacing: 2)),
                 SizedBox(height: 2),
                 Text('Settings', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
               ],
@@ -67,6 +73,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildProfileBanner(BuildContext context) {
+    final profileAsync = ref.watch(userProfileProvider);
+    String name = 'User';
+    String initials = 'U';
+
+    profileAsync.whenData((profile) {
+      if (profile != null && profile['display_name'] != null && profile['display_name'].toString().isNotEmpty) {
+        name = profile['display_name'];
+        initials = name.split(' ').map((e) => e.isNotEmpty ? e[0] : '').take(2).join().toUpperCase();
+      }
+    });
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: GestureDetector(
@@ -79,17 +96,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           child: Row(
             children: [
-              CircleAvatar(radius: 26, backgroundColor: Colors.white.withValues(alpha: 0.2),
-                  child: const Text('MV', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 18))),
+              CircleAvatar(
+                radius: 26, 
+                backgroundColor: Colors.white.withValues(alpha: 0.2),
+                child: Text(initials, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 18))
+              ),
               const SizedBox(width: 16),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Marcus Vane', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 18)),
-                    Text('Chief Controller • Premium Account', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                    SizedBox(height: 4),
-                    Text('Aetheric Ledger v4.8.2-Enterprise', style: TextStyle(color: Colors.white54, fontSize: 11)),
+                    Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 18)),
+                    const Text('Manage Personal Info', style: TextStyle(color: Colors.white70, fontSize: 13)),
                   ],
                 ),
               ),
@@ -107,7 +125,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textTertiary, letterSpacing: 0.5)),
+          Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary, letterSpacing: 1.2)),
           const SizedBox(height: 10),
           GlassCard(margin: EdgeInsets.zero, padding: EdgeInsets.zero, child: Column(children: items)),
         ],
@@ -115,27 +133,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  List<Widget> _buildSecurityItems() {
+  List<Widget> _buildPreferencesItems() {
+    final themes = ['System Default', 'Dark Mode', 'Light Mode'];
+    final currencies = ['INR (₹)', 'USD (\$)', 'EUR (€)', 'GBP (£)'];
+    
     return [
-      _buildSettingsTile(LucideIcons.fingerprint, 'Biometric Authentication', 'FaceID & TouchID', AppColors.accentCyan, trailing: Switch(value: true, onChanged: (_) {}, activeThumbColor: AppColors.accentCyan)),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          children: [
+            Icon(LucideIcons.indianRupee, color: AppColors.accentEmerald, size: 22),
+            const SizedBox(width: 14),
+            const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Base Currency', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w500)),
+            ])),
+            TextButton(
+              onPressed: () => _showPickerSheet(context, 'Currency', currencies, _currencyIndex, (i) => setState(() => _currencyIndex = i)),
+              child: Text(currencies[_currencyIndex], style: const TextStyle(color: AppColors.textPrimary, fontSize: 13)),
+            ),
+          ],
+        ),
+      ),
       Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.shieldCheck, 'Encrypted Ledger Access', 'AES-256 Quantum Shield', AppColors.accentEmerald),
-      Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.lock, 'Two-Factor Auth', 'TOTP enabled', AppColors.accentPurple),
-    ];
-  }
-
-  List<Widget> _buildFinancialItems(BuildContext context) {
-    return [
-      _buildSettingsTile(LucideIcons.creditCard, 'Linked Accounts', 'Corporate Centurion •••• 9002', AppColors.accentCyan, onTap: () => context.push('/upi')),
-      Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.qrCode, 'UPI Integration', 'Quick-Receive enabled', AppColors.accentPurple, onTap: () => context.push('/upi')),
-    ];
-  }
-
-  List<Widget> _buildAppCustomItems() {
-    final themes = ['Midnight Glass', 'Aurora Dark', 'Solar Flare'];
-    return [
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         child: Row(
@@ -143,96 +162,85 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Icon(LucideIcons.palette, color: AppColors.accentCyan, size: 22),
             const SizedBox(width: 14),
             const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Theme', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w500)),
+              Text('App Theme', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w500)),
             ])),
-            DropdownButton<int>(
-              value: _themeIndex,
-              dropdownColor: AppColors.bgElevated,
-              style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
-              underline: const SizedBox(),
-              items: List.generate(themes.length, (i) => DropdownMenuItem(value: i, child: Text(themes[i]))),
-              onChanged: (v) => setState(() => _themeIndex = v!),
+            TextButton(
+              onPressed: () => _showPickerSheet(context, 'Theme', themes, _themeIndex, (i) => setState(() => _themeIndex = i)),
+              child: Text(themes[_themeIndex], style: const TextStyle(color: AppColors.textPrimary, fontSize: 13)),
             ),
           ],
         ),
       ),
       Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.vibrate, 'Haptics', 'High Precision', AppColors.accentPurple, trailing: Switch(value: _haptics, onChanged: (v) => setState(() => _haptics = v), activeThumbColor: AppColors.accentCyan)),
-      Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.bell, 'Notifications', 'High Priority Only', AppColors.accentRose, trailing: Switch(value: _highPriorityNotifs, onChanged: (v) => setState(() => _highPriorityNotifs = v), activeThumbColor: AppColors.accentCyan)),
-      Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.zap, 'Beta Features', 'Experimental tools', AppColors.accentPurple, trailing: Switch(value: _betaFeatures, onChanged: (v) => setState(() => _betaFeatures = v), activeThumbColor: AppColors.accentCyan)),
+      _buildSettingsTile(LucideIcons.bellRing, 'Daily Reminder', 'Remind to log expenses', AppColors.accentPurple, trailing: Switch(value: _dailyReminders, onChanged: (v) => setState(() => _dailyReminders = v), activeThumbColor: AppColors.accentCyan)),
     ];
   }
 
-  List<Widget> _buildLocalizationItems() {
-    final languages = ['English', 'Español'];
+  List<Widget> _buildCategoryItems(BuildContext context) {
     return [
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        child: Row(
-          children: [
-            Icon(LucideIcons.globe, color: AppColors.accentEmerald, size: 22),
-            const SizedBox(width: 14),
-            const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Language', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w500)),
-            ])),
-            DropdownButton<int>(
-              value: _languageIndex,
-              dropdownColor: AppColors.bgElevated,
-              style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
-              underline: const SizedBox(),
-              items: List.generate(languages.length, (i) => DropdownMenuItem(value: i, child: Text(languages[i]))),
-              onChanged: (v) => setState(() => _languageIndex = v!),
-            ),
-          ],
-        ),
+      _buildSettingsTile(LucideIcons.tags, 'Manage Categories', 'Add/edit expense tags', AppColors.accentEmerald, onTap: () {}),
+      Divider(color: AppColors.borderSubtle, height: 1),
+      _buildSettingsTile(LucideIcons.target, 'Budget Limits', 'Set monthly caps', AppColors.accentCyan, onTap: () => context.push('/budget')),
+    ];
+  }
+
+  List<Widget> _buildGroupsItems(BuildContext context) {
+    return [
+      _buildSettingsTile(LucideIcons.users, 'Manage Groups', 'View active groups', AppColors.accentPurple, onTap: () => context.push('/groups')),
+      Divider(color: AppColors.borderSubtle, height: 1),
+      _buildSettingsTile(LucideIcons.gitMerge, 'Default Split Rule', 'Currently: Equal Split', AppColors.accentCyan, onTap: () {}),
+    ];
+  }
+
+  List<Widget> _buildDataSecurityItems() {
+    return [
+      _buildSettingsTile(LucideIcons.fingerprint, 'App Lock', 'Biometric security', AppColors.accentCyan, trailing: Switch(value: _appLock, onChanged: (v) => setState(() => _appLock = v), activeThumbColor: AppColors.accentCyan)),
+      Divider(color: AppColors.borderSubtle, height: 1),
+      _buildSettingsTile(LucideIcons.cloudLightning, 'Cloud Backup', 'Sync data to cloud', AppColors.accentEmerald, onTap: () {}),
+      Divider(color: AppColors.borderSubtle, height: 1),
+      _buildSettingsTile(LucideIcons.download, 'Export Data', 'Download CSV report', AppColors.accentPurple, onTap: () {}),
+      Divider(color: AppColors.borderSubtle, height: 1),
+      _buildSettingsTile(LucideIcons.trash2, 'Clear Cache', 'Free up space', AppColors.textSecondary, onTap: () {}),
+    ];
+  }
+
+  List<Widget> _buildSupportItems() {
+    return [
+      _buildSettingsTile(LucideIcons.helpCircle, 'Help & Support', 'FAQs and Contact', AppColors.accentEmerald, onTap: () {}),
+      Divider(color: AppColors.borderSubtle, height: 1),
+      _buildSettingsTile(LucideIcons.logOut, 'Sign Out', 'Disconnect this device', AppColors.accentRose, onTap: () => context.go('/login')),
+    ];
+  }
+
+  void _showPickerSheet(BuildContext context, String title, List<String> items, int selectedIndex, ValueChanged<int> onSelected) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.bgElevated,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => ListView.separated(
+        shrinkWrap: true,
+        padding: const EdgeInsets.all(16),
+        itemCount: items.length + 1,
+        separatorBuilder: (_, __) => Divider(color: AppColors.borderSubtle.withValues(alpha: 0.5)),
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(title, style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w700)),
+            );
+          }
+          final actualIndex = index - 1;
+          return ListTile(
+            title: Text(items[actualIndex], style: const TextStyle(color: AppColors.textPrimary)),
+            trailing: actualIndex == selectedIndex ? const Icon(LucideIcons.check, color: AppColors.accentCyan) : null,
+            onTap: () {
+              onSelected(actualIndex);
+              Navigator.pop(context);
+            },
+          );
+        },
       ),
-      Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.textCursorInput, 'Text Scale', '${(_textScale * 100).toStringAsFixed(0)}%', AppColors.accentCyan),
-      Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.eye, 'High Contrast', 'Enhanced visibility', AppColors.accentRose, trailing: Switch(value: _highContrast, onChanged: (v) => setState(() => _highContrast = v), activeThumbColor: AppColors.accentCyan)),
-    ];
-  }
-
-  List<Widget> _buildDeveloperItems() {
-    final loggingLevels = ['Debug', 'Info', 'Warning'];
-    return [
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        child: Row(
-          children: [
-            Icon(LucideIcons.terminalSquare, color: AppColors.accentPurple, size: 22),
-            const SizedBox(width: 14),
-            const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Logging Level', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w500)),
-            ])),
-            DropdownButton<int>(
-              value: _loggingIndex,
-              dropdownColor: AppColors.bgElevated,
-              style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
-              underline: const SizedBox(),
-              items: List.generate(loggingLevels.length, (i) => DropdownMenuItem(value: i, child: Text(loggingLevels[i]))),
-              onChanged: (v) => setState(() => _loggingIndex = v!),
-            ),
-          ],
-        ),
-      ),
-      Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.activity, 'Performance Monitor', 'View app metrics', AppColors.accentCyan, onTap: () {}),
-      Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.database, 'App Storage', 'Cache & database size', AppColors.accentEmerald, onTap: () {}),
-    ];
-  }
-
-  List<Widget> _buildAccountItems(BuildContext context) {
-    return [
-      _buildSettingsTile(LucideIcons.user, 'Executive Profile', 'Marcus Vane', AppColors.accentCyan, onTap: () => context.push('/profile')),
-      Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.helpCircle, 'Install Guide', 'Setup & onboarding', AppColors.accentEmerald, onTap: () => context.push('/install-guide')),
-      Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.logOut, 'Sign Out', 'Exit secure session', AppColors.accentRose, onTap: () => context.go('/login')),
-    ];
+    );
   }
 
   Widget _buildSettingsTile(IconData icon, String title, String subtitle, Color color, {Widget? trailing, VoidCallback? onTap}) {

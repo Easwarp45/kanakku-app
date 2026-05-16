@@ -14,7 +14,7 @@ class EditGroupExpenseScreen extends StatefulWidget {
 
 class _EditGroupExpenseScreenState extends State<EditGroupExpenseScreen> {
   final _amountController = TextEditingController(text: '1480.00');
-  final _descController = TextEditingController(text: 'Le Bernardin Dinner');
+  final _descController = TextEditingController(text: 'Taj Hotel Dinner');
 
   @override
   Widget build(BuildContext context) {
@@ -121,9 +121,9 @@ class _EditGroupExpenseScreenState extends State<EditGroupExpenseScreen> {
 
   Widget _buildSplitSection() {
     final splits = [
-      {'name': 'Marcus Vane', 'share': '\$493.33', 'paid': true},
-      {'name': 'Elena Vane', 'share': '\$493.33', 'paid': false},
-      {'name': 'Julian Vane', 'share': '\$493.34', 'paid': false},
+      {'name': 'Marcus Vane', 'share': '₹493.33', 'paid': true},
+      {'name': 'Elena Vane', 'share': '₹493.33', 'paid': false},
+      {'name': 'Julian Vane', 'share': '₹493.34', 'paid': false}
     ];
     return GlassCard(
       margin: EdgeInsets.zero,
