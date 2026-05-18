@@ -49,6 +49,7 @@ class _GroupExpenseEntryScreenState extends ConsumerState<GroupExpenseEntryScree
         amount: amount,
         category: _selectedCategory,
       );
+      ref.invalidate(groupExpensesStreamProvider(widget.groupId!));
       if (mounted) {
         context.pop();
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Expense added successfully!')));

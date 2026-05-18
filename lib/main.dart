@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/theme/app_theme.dart';
 import 'core/routes/app_router.dart';
 import 'core/database/hive_service.dart';
+import 'core/database/local_cache_service.dart';
 import 'core/logging/app_logger.dart';
 import 'core/ui/global_error_handler.dart';
 import 'core/feature_flags/feature_flags.dart';
@@ -24,6 +25,7 @@ Future<void> main() async {
 
   // Initialize Hive for local storage
   await HiveService.initialize();
+  await LocalCacheService.initialize();
   // Initialize logging
   logger.init();
   // Preload feature flags

@@ -75,49 +75,61 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
     final totalIncome = ref.watch(totalIncomeAmountProvider);
     final monthlyIncome = ref.watch(monthlyIncomeProvider);
 
+    Future<void> handleRefresh() async {
+      ref.invalidate(incomeStreamProvider);
+      ref.invalidate(totalIncomeAmountProvider);
+      ref.invalidate(monthlyIncomeProvider);
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
     return Scaffold(
       backgroundColor: AppColors.bgPrimary,
       body: SafeArea(
-        child: CustomScrollView(
-          physics: const BouncingScrollPhysics(),
-          slivers: [
-            SliverToBoxAdapter(child: _buildHeader()),
-            const SliverToBoxAdapter(child: SizedBox(height: 20)),
-            SliverToBoxAdapter(child: _buildTotalCard(totalIncome, monthlyIncome)),
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
-            SliverToBoxAdapter(child: _buildSectionTitle('Visual Analytics')),
-            SliverToBoxAdapter(child: _buildAnalyticsCards(incomeAsync)),
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
-            SliverToBoxAdapter(child: _buildSectionTitle('Search & Filters')),
-            SliverToBoxAdapter(child: _buildFilterSection()),
-            const SliverToBoxAdapter(child: SizedBox(height: 20)),
-            SliverToBoxAdapter(child: _buildSmartInsight(incomeAsync)),
-            const SliverToBoxAdapter(child: SizedBox(height: 20)),
-            SliverToBoxAdapter(child: _buildSectionTitle('Income History')),
-            incomeAsync.when(
-              data: (list) {
-                final filtered = _filter(list);
-                if (filtered.isEmpty) {
-                  return SliverFillRemaining(hasScrollBody: false, child: _buildEmptyState());
-                }
-                return SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 100),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (_, i) => _buildIncomeCard(filtered[i]),
-                      childCount: filtered.length,
+        child: RefreshIndicator(
+          color: AppColors.accentEmerald,
+          backgroundColor: AppColors.bgElevated,
+          onRefresh: handleRefresh,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(child: _buildHeader(context)),
+              const SliverToBoxAdapter(child: SizedBox(height: 20)),
+              SliverToBoxAdapter(child: _buildTotalCard(totalIncome, monthlyIncome)),
+              const SliverToBoxAdapter(child: SizedBox(height: 24)),
+              SliverToBoxAdapter(child: _buildSectionTitle('Visual Analytics')),
+              SliverToBoxAdapter(child: _buildAnalyticsCards(incomeAsync)),
+              const SliverToBoxAdapter(child: SizedBox(height: 24)),
+              SliverToBoxAdapter(child: _buildSectionTitle('Search & Filters')),
+              SliverToBoxAdapter(child: _buildFilterSection()),
+              const SliverToBoxAdapter(child: SizedBox(height: 20)),
+              SliverToBoxAdapter(child: _buildSmartInsight(incomeAsync)),
+              const SliverToBoxAdapter(child: SizedBox(height: 20)),
+              SliverToBoxAdapter(child: _buildSectionTitle('Income History')),
+              incomeAsync.when(
+                data: (list) {
+                  final filtered = _filter(list);
+                  if (filtered.isEmpty) {
+                    return SliverFillRemaining(hasScrollBody: false, child: _buildEmptyState());
+                  }
+                  return SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 100),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (_, i) => _buildIncomeCard(filtered[i]),
+                        childCount: filtered.length,
+                      ),
                     ),
-                  ),
-                );
-              },
-              loading: () => const SliverFillRemaining(
-                child: Center(child: CircularProgressIndicator(color: AppColors.accentEmerald)),
+                  );
+                },
+                loading: () => const SliverFillRemaining(
+                  child: Center(child: CircularProgressIndicator(color: AppColors.accentEmerald)),
+                ),
+                error: (e, _) => SliverFillRemaining(
+                  child: Center(child: Text('Error: $e', style: const TextStyle(color: AppColors.accentRose))),
+                ),
               ),
-              error: (e, _) => SliverFillRemaining(
-                child: Center(child: Text('Error: $e', style: const TextStyle(color: AppColors.accentRose))),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
       bottomNavigationBar: const AppBottomNav(currentIndex: 2),
@@ -138,7 +150,7 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
       child: Row(
@@ -161,6 +173,7 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
       ),
     );
   }
+
 
   Widget _buildTotalCard(double total, double monthly) {
     return Padding(

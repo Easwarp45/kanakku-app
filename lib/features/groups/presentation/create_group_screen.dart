@@ -29,6 +29,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     setState(() => _isSaving = true);
     try {
       await ref.read(groupServiceProvider).createGroup(name, _descController.text.trim());
+      ref.invalidate(groupsStreamProvider);
       if (mounted) context.pop();
     } catch (e) {
       if (mounted) {

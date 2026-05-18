@@ -1,11 +1,15 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/database/supabase_service.dart';
 import '../../../core/providers/auth_provider.dart';
+import '../../../core/database/local_cache_service.dart';
 
 final expenseServiceProvider = Provider<ExpenseService>((ref) {
   final client = ref.watch(supabaseClientProvider);
   final user = ref.watch(currentUserProvider);
+  // Warm up RealtimeSyncManager
+  ref.read(realtimeSyncManagerProvider);
   return ExpenseService(client, user?.id);
 });
 
@@ -21,7 +25,6 @@ final monthlyExpensesProvider = Provider<double>((ref) {
     data: (expenses) {
       return expenses
           .where((e) {
-            // Use expense_date (the actual DB column) for monthly filtering
             final dateStr = e['expense_date']?.toString() ?? e['created_at']?.toString() ?? '';
             final date = DateTime.tryParse(dateStr);
             return date != null && 
@@ -58,45 +61,101 @@ class ExpenseService {
   Stream<List<Map<String, dynamic>>> getExpensesStream() {
     if (_userId == null) return Stream.value([]);
     
-    return _client
+    final controller = StreamController<List<Map<String, dynamic>>>();
+    
+    // 1. Immediate cache payload emission
+    final cached = LocalCacheService.getCachedData('expenses_$_userId');
+    if (cached != null) {
+      controller.add(List<Map<String, dynamic>>.from(cached));
+    }
+    
+    // 2. High-speed websocket sync subscription
+    final subscription = _client
         .from('expenses')
         .stream(primaryKey: ['id'])
         .eq('user_id', _userId)
-        .order('expense_date', ascending: false);
+        .order('expense_date', ascending: false)
+        .listen((data) {
+          LocalCacheService.cacheData('expenses_$_userId', data);
+          if (!controller.isClosed) {
+            controller.add(data);
+          }
+        }, onError: (_) {});
+
+    controller.onCancel = () {
+      subscription.cancel();
+      controller.close();
+    };
+
+    return controller.stream;
   }
 
-  /// Insert expense with columns matching the exact DB schema:
-  /// id, user_id, amount, category (expense_category enum), description,
-  /// payment_method (payment_method enum), expense_date, receipt_url, created_at, updated_at
   Future<void> addExpense(Map<String, dynamic> expense) async {
     if (_userId == null) throw Exception('User not authenticated');
     
+    final tempId = DateTime.now().millisecondsSinceEpoch.toString();
     final data = {
+      'id': tempId,
       'user_id': _userId,
       'amount': expense['amount'],
       'category': expense['category'] ?? 'other',
       'description': expense['description'],
       'payment_method': expense['payment_method'] ?? 'upi',
       'expense_date': expense['expense_date'] ?? DateTime.now().toIso8601String().split('T')[0],
+      'created_at': DateTime.now().toIso8601String(),
     };
-    // Remove null values so DB defaults take effect
-    data.removeWhere((key, value) => value == null);
     
-    await _client.from('expenses').insert(data);
+    // Optimistic cache update
+    final cached = LocalCacheService.getCachedData('expenses_$_userId') ?? [];
+    final updated = [data, ...List<Map<String, dynamic>>.from(cached)];
+    await LocalCacheService.cacheData('expenses_$_userId', updated);
+    
+    // Queue background upload
+    final syncData = Map<String, dynamic>.from(data)..remove('id')..remove('created_at');
+    await LocalCacheService.queueAction(
+      actionType: 'insert',
+      path: 'expenses',
+      payload: syncData,
+    );
   }
 
   Future<void> updateExpense(String id, Map<String, dynamic> expense) async {
     if (_userId == null) throw Exception('User not authenticated');
-    // Only allow updating valid DB columns
+    
     final validKeys = {'amount', 'category', 'description', 'payment_method', 'expense_date', 'receipt_url'};
     final cleanData = Map<String, dynamic>.fromEntries(
       expense.entries.where((e) => validKeys.contains(e.key)),
     );
-    await _client.from('expenses').update(cleanData).eq('id', id).eq('user_id', _userId);
+    
+    // Optimistic cache update
+    final cached = LocalCacheService.getCachedData('expenses_$_userId') ?? [];
+    final updated = List<Map<String, dynamic>>.from(cached).map((e) {
+      if (e['id'] == id) return {...e, ...cleanData};
+      return e;
+    }).toList();
+    await LocalCacheService.cacheData('expenses_$_userId', updated);
+    
+    // Queue background edit
+    await LocalCacheService.queueAction(
+      actionType: 'update',
+      path: 'expenses',
+      payload: {'id': id, ...cleanData},
+    );
   }
 
   Future<void> deleteExpense(String expenseId) async {
     if (_userId == null) return;
-    await _client.from('expenses').delete().eq('id', expenseId).eq('user_id', _userId);
+    
+    // Optimistic cache update
+    final cached = LocalCacheService.getCachedData('expenses_$_userId') ?? [];
+    final updated = List<Map<String, dynamic>>.from(cached).where((e) => e['id'] != expenseId).toList();
+    await LocalCacheService.cacheData('expenses_$_userId', updated);
+    
+    // Queue background deletion
+    await LocalCacheService.queueAction(
+      actionType: 'delete',
+      path: 'expenses',
+      payload: {'id': expenseId},
+    );
   }
 }

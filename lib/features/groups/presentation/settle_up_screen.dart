@@ -32,6 +32,7 @@ class _SettleUpScreenState extends ConsumerState<SettleUpScreen> {
         amount: widget.settlementData!['amount'],
         note: _noteController.text.trim(),
       );
+      ref.invalidate(groupSettlementsStreamProvider(widget.settlementData!['groupId']));
       if (mounted) {
         context.pop();
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment successfully recorded!')));

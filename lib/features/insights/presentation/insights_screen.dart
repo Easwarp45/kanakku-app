@@ -1,40 +1,52 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../../shared/widgets/glass_card.dart';
 import '../../../shared/widgets/app_bottom_nav.dart';
 import '../../../core/theme/app_colors.dart';
 
-class InsightsScreen extends StatelessWidget {
+class InsightsScreen extends ConsumerWidget {
   const InsightsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    Future<void> handleRefresh() async {
+      // Future-proofed to invalidate any insight data providers in future phases
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
     return Scaffold(
       body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            SliverToBoxAdapter(child: _buildHeader()),
-            SliverToBoxAdapter(child: const SizedBox(height: 12)),
-            SliverToBoxAdapter(child: _buildOptionsList(context)),
-            SliverToBoxAdapter(child: const SizedBox(height: 32)),
-          ],
+        child: RefreshIndicator(
+          color: AppColors.accentCyan,
+          backgroundColor: AppColors.bgElevated,
+          onRefresh: handleRefresh,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(child: _buildHeader(context)),
+              SliverToBoxAdapter(child: const SizedBox(height: 12)),
+              SliverToBoxAdapter(child: _buildOptionsList(context)),
+              SliverToBoxAdapter(child: const SizedBox(height: 32)),
+            ],
+          ),
         ),
       ),
       bottomNavigationBar: const AppBottomNav(currentIndex: 4),
     );
   }
 
-  Widget _buildHeader() {
-    return Padding(
+  Widget _buildHeader(BuildContext context) {
+    return const Padding(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('INTELLIGENCE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.accentCyan, letterSpacing: 2)),
-          const SizedBox(height: 2),
-          const Text('Financial Brain', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-          const SizedBox(height: 6),
-          const Text(
+          Text('INTELLIGENCE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.accentCyan, letterSpacing: 2)),
+          SizedBox(height: 2),
+          Text('Financial Brain', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+          SizedBox(height: 6),
+          Text(
             'Tap on any intelligence module below to run analysis and view detailed interactive reports.',
             style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.4),
           ),
@@ -42,6 +54,7 @@ class InsightsScreen extends StatelessWidget {
       ),
     );
   }
+
 
   Widget _buildOptionsList(BuildContext context) {
     return Padding(

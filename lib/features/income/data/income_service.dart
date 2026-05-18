@@ -1,13 +1,17 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/database/supabase_service.dart';
 import '../../../core/providers/auth_provider.dart';
+import '../../../core/database/local_cache_service.dart';
 
 // ─── Providers ───────────────────────────────────────────────────────
 
 final incomeServiceProvider = Provider<IncomeService>((ref) {
   final client = ref.watch(supabaseClientProvider);
   final user = ref.watch(currentUserProvider);
+  // Warm up RealtimeSyncManager
+  ref.read(realtimeSyncManagerProvider);
   return IncomeService(client, user?.id);
 });
 
@@ -97,42 +101,102 @@ class IncomeService {
 
   Stream<List<Map<String, dynamic>>> getIncomeStream() {
     if (_userId == null) return Stream.value([]);
-    return _client
+    
+    final controller = StreamController<List<Map<String, dynamic>>>();
+    
+    // 1. Immediate cache payload emission
+    final cached = LocalCacheService.getCachedData('income_$_userId');
+    if (cached != null) {
+      controller.add(List<Map<String, dynamic>>.from(cached));
+    }
+    
+    // 2. Dynamic realtime socket synchronizer
+    final subscription = _client
         .from('income')
         .stream(primaryKey: ['id'])
         .eq('user_id', _userId)
-        .order('income_date', ascending: false);
+        .order('income_date', ascending: false)
+        .listen((data) {
+          LocalCacheService.cacheData('income_$_userId', data);
+          if (!controller.isClosed) {
+            controller.add(data);
+          }
+        }, onError: (_) {});
+
+    controller.onCancel = () {
+      subscription.cancel();
+      controller.close();
+    };
+
+    return controller.stream;
   }
 
-  /// Insert income with columns matching the exact DB schema:
-  /// id, user_id, amount, source, description, income_date, is_recurring, created_at, updated_at
   Future<void> addIncome(Map<String, dynamic> income) async {
     if (_userId == null) throw Exception('User not authenticated');
+    
+    final tempId = DateTime.now().millisecondsSinceEpoch.toString();
     final data = {
+      'id': tempId,
       'user_id': _userId,
       'amount': income['amount'],
       'source': income['source'] ?? 'salary',
       'description': income['description'],
       'income_date': income['income_date'] ?? DateTime.now().toIso8601String().split('T')[0],
       'is_recurring': income['is_recurring'] ?? false,
+      'created_at': DateTime.now().toIso8601String(),
     };
-    // Remove null values so DB defaults take effect
-    data.removeWhere((key, value) => value == null);
-    await _client.from('income').insert(data);
+    
+    // Optimistic cache update
+    final cached = LocalCacheService.getCachedData('income_$_userId') ?? [];
+    final updated = [data, ...List<Map<String, dynamic>>.from(cached)];
+    await LocalCacheService.cacheData('income_$_userId', updated);
+    
+    // Queue background upload
+    final syncData = Map<String, dynamic>.from(data)..remove('id')..remove('created_at');
+    await LocalCacheService.queueAction(
+      actionType: 'insert',
+      path: 'income',
+      payload: syncData,
+    );
   }
 
   Future<void> updateIncome(String id, Map<String, dynamic> data) async {
     if (_userId == null) throw Exception('User not authenticated');
-    // Only allow updating valid DB columns
+    
     final validKeys = {'amount', 'source', 'description', 'income_date', 'is_recurring'};
     final cleanData = Map<String, dynamic>.fromEntries(
       data.entries.where((e) => validKeys.contains(e.key)),
     );
-    await _client.from('income').update(cleanData).eq('id', id).eq('user_id', _userId);
+    
+    // Optimistic cache update
+    final cached = LocalCacheService.getCachedData('income_$_userId') ?? [];
+    final updated = List<Map<String, dynamic>>.from(cached).map((e) {
+      if (e['id'] == id) return {...e, ...cleanData};
+      return e;
+    }).toList();
+    await LocalCacheService.cacheData('income_$_userId', updated);
+    
+    // Queue background edit
+    await LocalCacheService.queueAction(
+      actionType: 'update',
+      path: 'income',
+      payload: {'id': id, ...cleanData},
+    );
   }
 
   Future<void> deleteIncome(String id) async {
     if (_userId == null) return;
-    await _client.from('income').delete().eq('id', id).eq('user_id', _userId);
+    
+    // Optimistic cache update
+    final cached = LocalCacheService.getCachedData('income_$_userId') ?? [];
+    final updated = List<Map<String, dynamic>>.from(cached).where((e) => e['id'] != id).toList();
+    await LocalCacheService.cacheData('income_$_userId', updated);
+    
+    // Queue background deletion
+    await LocalCacheService.queueAction(
+      actionType: 'delete',
+      path: 'income',
+      payload: {'id': id},
+    );
   }
 }

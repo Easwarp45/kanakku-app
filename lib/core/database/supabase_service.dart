@@ -1,8 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'realtime_sync_manager.dart';
 
 final supabaseClientProvider = Provider<SupabaseClient>((ref) {
   return Supabase.instance.client;
+});
+
+final realtimeSyncManagerProvider = Provider<RealtimeSyncManager>((ref) {
+  final client = ref.watch(supabaseClientProvider);
+  return RealtimeSyncManager(client);
 });
 
 final supabaseServiceProvider = Provider<SupabaseService>((ref) {

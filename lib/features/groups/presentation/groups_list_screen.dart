@@ -63,6 +63,7 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
                 setDialogState(() => isJoining = true);
                 try {
                   await ref.read(groupServiceProvider).joinGroup(code);
+                  ref.invalidate(groupsStreamProvider);
                   if (mounted) {
                     Navigator.pop(context);
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Welcome to the group!')));
@@ -93,62 +94,85 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
     final groupsAsync = ref.watch(groupsStreamProvider);
     final currentUserId = ref.watch(currentUserProvider)?.id ?? '';
 
+    Future<void> handleRefresh() async {
+      ref.invalidate(groupsStreamProvider);
+      
+      // Also invalidate nested card data for all loaded groups
+      final groups = groupsAsync.value ?? [];
+      for (final group in groups) {
+        final groupId = group['id']?.toString();
+        if (groupId != null) {
+          ref.invalidate(groupExpensesStreamProvider(groupId));
+          ref.invalidate(groupSettlementsStreamProvider(groupId));
+          ref.invalidate(groupMembersStreamProvider(groupId));
+        }
+      }
+      
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
     return Scaffold(
       body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            SliverToBoxAdapter(child: _buildHeader(context)),
-            SliverToBoxAdapter(child: _buildSearchBar()),
-            SliverToBoxAdapter(child: const SizedBox(height: 24)),
-            SliverToBoxAdapter(child: _buildSummaryCard(ref, groupsAsync, currentUserId)),
-            SliverToBoxAdapter(child: const SizedBox(height: 24)),
-            SliverToBoxAdapter(child: _buildQuickActions(context)),
-            SliverToBoxAdapter(child: const SizedBox(height: 24)),
-            SliverToBoxAdapter(child: _buildActiveSettlements()),
-            SliverToBoxAdapter(child: const SizedBox(height: 24)),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Your Groups', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-                    const Icon(LucideIcons.slidersHorizontal, color: AppColors.textTertiary, size: 20),
-                  ],
+        child: RefreshIndicator(
+          color: AppColors.accentPurple,
+          backgroundColor: AppColors.bgElevated,
+          onRefresh: handleRefresh,
+          child: CustomScrollView(
+            physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+            slivers: [
+              SliverToBoxAdapter(child: _buildHeader(context)),
+              SliverToBoxAdapter(child: _buildSearchBar()),
+              SliverToBoxAdapter(child: const SizedBox(height: 24)),
+              SliverToBoxAdapter(child: _buildSummaryCard(ref, groupsAsync, currentUserId)),
+              SliverToBoxAdapter(child: const SizedBox(height: 24)),
+              SliverToBoxAdapter(child: _buildQuickActions(context)),
+              SliverToBoxAdapter(child: const SizedBox(height: 24)),
+              SliverToBoxAdapter(child: _buildActiveSettlements()),
+              SliverToBoxAdapter(child: const SizedBox(height: 24)),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Your Groups', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                      const Icon(LucideIcons.slidersHorizontal, color: AppColors.textTertiary, size: 20),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            SliverToBoxAdapter(child: const SizedBox(height: 8)),
-            groupsAsync.when(
-              data: (groups) {
-                if (groups.isEmpty) {
-                  return const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 32, horizontal: 24),
-                      child: Center(
-                        child: Text(
-                          "You aren't in any groups yet. Create one!",
-                          style: TextStyle(color: AppColors.textSecondary),
+              SliverToBoxAdapter(child: const SizedBox(height: 8)),
+              groupsAsync.when(
+                data: (groups) {
+                  if (groups.isEmpty) {
+                    return const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+                        child: Center(
+                          child: Text(
+                            "You aren't in any groups yet. Create one!",
+                            style: TextStyle(color: AppColors.textSecondary),
+                          ),
                         ),
                       ),
+                    );
+                  }
+                  return SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final group = groups[index];
+                        return GroupCard(group: group, currentUserId: currentUserId);
+                      },
+                      childCount: groups.length,
                     ),
                   );
-                }
-                return SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final group = groups[index];
-                      return GroupCard(group: group, currentUserId: currentUserId);
-                    },
-                    childCount: groups.length,
-                  ),
-                );
-              },
-              loading: () => const SliverToBoxAdapter(child: Center(child: CircularProgressIndicator(color: AppColors.accentPurple))),
-              error: (err, stack) => SliverToBoxAdapter(child: Center(child: Text('Error: $err', style: const TextStyle(color: AppColors.accentRose)))),
-            ),
-            SliverToBoxAdapter(child: const SizedBox(height: 32)),
-          ],
+                },
+                loading: () => const SliverToBoxAdapter(child: Center(child: CircularProgressIndicator(color: AppColors.accentPurple))),
+                error: (err, stack) => SliverToBoxAdapter(child: Center(child: Text('Error: $err', style: const TextStyle(color: AppColors.accentRose)))),
+              ),
+              SliverToBoxAdapter(child: const SizedBox(height: 32)),
+            ],
+          ),
         ),
       ),
       bottomNavigationBar: const AppBottomNav(currentIndex: 3),
@@ -185,12 +209,8 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
     );
   }
 
-  Widget _buildSummaryCard(WidgetRef ref, AsyncValue<List<Map<String, dynamic>>> groupsAsync, String currentUserId) {
-    // This is a simplified aggregate calculation. 
-    // In a real production app, you might use a dedicated provider for total balances.
-    double totalOwe = 0;
-    double totalOwed = 0;
 
+  Widget _buildSummaryCard(WidgetRef ref, AsyncValue<List<Map<String, dynamic>>> groupsAsync, String currentUserId) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Container(
@@ -380,83 +400,168 @@ class GroupCard extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 14),
       child: GlassCard(
         margin: EdgeInsets.zero,
+        borderRadius: 20,
         onTap: () => context.push('/group-detail', extra: groupId),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 24,
-                  backgroundColor: AppColors.accentCyan.withValues(alpha: 0.15),
-                  child: Text(_buildGroupMonogram(name), style: const TextStyle(color: AppColors.accentCyan, fontWeight: FontWeight.w700, fontSize: 16)),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(name, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 18)),
-                      const SizedBox(height: 4),
-                      Text(desc, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-                    ],
-                  ),
-                ),
-                const Icon(LucideIcons.chevronRight, color: AppColors.textTertiary, size: 20),
-              ],
-            ),
-            const SizedBox(height: 20),
-            expensesAsync.when(
-              data: (expenses) => membersAsync.when(
-                data: (members) => settlementsAsync.when(
-                  data: (settlements) {
-                    double myBalance = 0;
-                    if (members.isNotEmpty) {
-                      for (var e in expenses) {
-                        final paidBy = e['paid_by'];
-                        final amount = (e['amount'] as num).toDouble();
-                        final share = amount / members.length;
-                        if (paidBy == currentUserId) {
-                          myBalance += (amount - share);
-                        } else {
-                          myBalance -= share;
-                        }
-                      }
-                      for (var s in settlements) {
-                        final amount = (s['amount'] as num).toDouble();
-                        if (s['paid_by'] == currentUserId) {
-                          myBalance += amount;
-                        } else if (s['paid_to'] == currentUserId) {
-                          myBalance -= amount;
-                        }
-                      }
-                    }
-
-                    final isOwed = myBalance >= 0;
-                    final statusColor = isOwed ? AppColors.accentCyan : AppColors.accentRose;
-
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12), border: Border.all(color: statusColor.withValues(alpha: 0.2))),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(isOwed ? 'YOU ARE OWED' : 'YOU OWE', style: TextStyle(fontSize: 12, color: statusColor, fontWeight: FontWeight.w700, letterSpacing: 1)),
-                          Text('₹${myBalance.abs().toStringAsFixed(2)}', style: AppTheme.moneyStyle.copyWith(fontSize: 16, color: AppColors.textPrimary)),
-                        ],
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [AppColors.accentCyan.withOpacity(0.2), AppColors.accentPurple.withOpacity(0.2)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
                       ),
-                    );
-                  },
-                  loading: () => const Center(child: LinearProgressIndicator()),
-                  error: (_, __) => const Text('Error loading balances', style: TextStyle(color: AppColors.accentRose, fontSize: 12)),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Center(
+                      child: Text(
+                        _buildGroupMonogram(name),
+                        style: const TextStyle(color: AppColors.accentCyan, fontWeight: FontWeight.w800, fontSize: 16),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(name, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800, fontSize: 17, letterSpacing: -0.2)),
+                        const SizedBox(height: 3),
+                        Text(desc, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      ],
+                    ),
+                  ),
+                  const Icon(LucideIcons.chevronRight, color: AppColors.textTertiary, size: 20),
+                ],
+              ),
+              const SizedBox(height: 20),
+              expensesAsync.when(
+                data: (expenses) => membersAsync.when(
+                  data: (members) => settlementsAsync.when(
+                    data: (settlements) {
+                      double myBalance = 0;
+                      if (members.isNotEmpty) {
+                        for (var e in expenses) {
+                          final paidBy = e['paid_by'];
+                          final amount = (e['amount'] as num).toDouble();
+                          final share = amount / members.length;
+                          if (paidBy == currentUserId) {
+                            myBalance += (amount - share);
+                          } else {
+                            myBalance -= share;
+                          }
+                        }
+                        for (var s in settlements) {
+                          final amount = (s['amount'] as num).toDouble();
+                          if (s['paid_by'] == currentUserId) {
+                            myBalance += amount;
+                          } else if (s['paid_to'] == currentUserId) {
+                            myBalance -= amount;
+                          }
+                        }
+                      }
+
+                      final isOwed = myBalance >= 0;
+                      final statusColor = isOwed ? AppColors.accentCyan : AppColors.accentRose;
+
+                      return Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              // Overlapping Avatar Stack of members
+                              if (members.isNotEmpty)
+                                SizedBox(
+                                  height: 28,
+                                  width: 80,
+                                  child: Stack(
+                                    children: List.generate(
+                                      members.length > 3 ? 3 : members.length,
+                                      (idx) {
+                                        final m = members[idx];
+                                        final initial = (m['nickname'] ?? m['display_name'] ?? 'U').substring(0, 1).toUpperCase();
+                                        return Positioned(
+                                          left: idx * 16.0,
+                                          child: Container(
+                                            width: 24,
+                                            height: 24,
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: AppColors.bgSecondary,
+                                              border: Border.all(color: AppColors.bgPrimary, width: 1.5),
+                                            ),
+                                            child: Center(
+                                              child: Text(
+                                                initial,
+                                                style: TextStyle(
+                                                  color: idx == 0 ? AppColors.accentCyan : (idx == 1 ? AppColors.accentPurple : AppColors.accentEmerald),
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                )
+                              else
+                                const SizedBox.shrink(),
+                              // Small visual stats indicator
+                              Row(
+                                children: [
+                                  Icon(LucideIcons.receipt, size: 12, color: AppColors.textTertiary),
+                                  const SizedBox(width: 4),
+                                  Text('${expenses.length} bills', style: TextStyle(color: AppColors.textTertiary, fontSize: 11, fontWeight: FontWeight.w600)),
+                                ],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: statusColor.withOpacity(0.06),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: statusColor.withOpacity(0.15)),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  isOwed ? 'YOU ARE OWED' : 'YOU OWE',
+                                  style: TextStyle(fontSize: 11, color: statusColor, fontWeight: FontWeight.w800, letterSpacing: 1),
+                                ),
+                                Text(
+                                  '₹${myBalance.abs().toStringAsFixed(2)}',
+                                  style: AppTheme.moneyStyle.copyWith(fontSize: 15, color: AppColors.textPrimary),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                    loading: () => const Center(child: Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator(color: AppColors.accentPurple))),
+                    error: (_, __) => const Text('Error loading balances', style: TextStyle(color: AppColors.accentRose, fontSize: 12)),
+                  ),
+                  loading: () => const Center(child: Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator(color: AppColors.accentPurple))),
+                  error: (_, __) => const SizedBox.shrink(),
                 ),
-                loading: () => const Center(child: LinearProgressIndicator()),
+                loading: () => const Center(child: Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator(color: AppColors.accentPurple))),
                 error: (_, __) => const SizedBox.shrink(),
               ),
-              loading: () => const Center(child: LinearProgressIndicator()),
-              error: (_, __) => const SizedBox.shrink(),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

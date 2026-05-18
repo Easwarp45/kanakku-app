@@ -9,6 +9,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../expenses/data/expense_service.dart';
 import '../../income/data/income_service.dart' as inc;
 import '../../../core/providers/auth_provider.dart';
+import '../../groups/data/group_service.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -18,25 +19,42 @@ class DashboardScreen extends ConsumerWidget {
     final expensesAsync = ref.watch(expensesStreamProvider);
     final incomeAsync = ref.watch(inc.incomeStreamProvider);
     
+    Future<void> handleRefresh() async {
+      ref.invalidate(expensesStreamProvider);
+      ref.invalidate(inc.incomeStreamProvider);
+      ref.invalidate(userProfileProvider);
+      ref.invalidate(inc.monthlyIncomeProvider);
+      ref.invalidate(monthlyExpensesProvider);
+      ref.invalidate(recentSettlementsProvider);
+      // Wait a tiny moment for smooth visual feedback
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
     return Scaffold(
       body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            SliverToBoxAdapter(child: _buildHeader(context, ref)),
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
-            SliverToBoxAdapter(child: _buildBalanceCard(ref)),
-            const SliverToBoxAdapter(child: SizedBox(height: 20)),
-            SliverToBoxAdapter(child: _buildIncomeExpenseRow(ref)),
-            const SliverToBoxAdapter(child: SizedBox(height: 28)),
-            SliverToBoxAdapter(child: _buildQuickActions(context)),
-            const SliverToBoxAdapter(child: SizedBox(height: 28)),
-            SliverToBoxAdapter(child: _buildSmartInsightCard(context)),
-            const SliverToBoxAdapter(child: SizedBox(height: 28)),
-            SliverToBoxAdapter(
-              child: _buildCombinedRecentTransactions(context, ref, expensesAsync, incomeAsync),
-            ),
-            const SliverToBoxAdapter(child: SizedBox(height: 32)),
-          ],
+        child: RefreshIndicator(
+          color: AppColors.accentCyan,
+          backgroundColor: AppColors.bgElevated,
+          onRefresh: handleRefresh,
+          child: CustomScrollView(
+            physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+            slivers: [
+              SliverToBoxAdapter(child: _buildHeader(context, ref)),
+              const SliverToBoxAdapter(child: SizedBox(height: 24)),
+              SliverToBoxAdapter(child: _buildBalanceCard(ref)),
+              const SliverToBoxAdapter(child: SizedBox(height: 20)),
+              SliverToBoxAdapter(child: _buildIncomeExpenseRow(ref)),
+              const SliverToBoxAdapter(child: SizedBox(height: 28)),
+              SliverToBoxAdapter(child: _buildQuickActions(context)),
+              const SliverToBoxAdapter(child: SizedBox(height: 28)),
+              SliverToBoxAdapter(child: _buildSmartInsightCard(context)),
+              const SliverToBoxAdapter(child: SizedBox(height: 28)),
+              SliverToBoxAdapter(
+                child: _buildCombinedRecentTransactions(context, ref, expensesAsync, incomeAsync),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 32)),
+            ],
+          ),
         ),
       ),
       bottomNavigationBar: const AppBottomNav(currentIndex: 0),
@@ -73,6 +91,13 @@ class DashboardScreen extends ConsumerWidget {
       greeting = 'GOOD EVENING';
     }
 
+    final settlementsAsync = ref.watch(recentSettlementsProvider);
+    final hasUnread = settlementsAsync.when<bool>(
+      data: (list) => list.isNotEmpty,
+      loading: () => false,
+      error: (_, __) => false,
+    );
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
       child: Row(
@@ -86,18 +111,332 @@ class DashboardScreen extends ConsumerWidget {
               Text(name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
             ],
           ),
-          GestureDetector(
-            onTap: () => context.push('/profile'),
-            child: CircleAvatar(
-              radius: 22,
-              backgroundColor: AppColors.accentCyan.withValues(alpha: 0.1),
-              child: Text(initials, style: const TextStyle(color: AppColors.accentCyan, fontWeight: FontWeight.w700, fontSize: 14)),
-            ),
+          Row(
+            children: [
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  IconButton(
+                    icon: const Icon(LucideIcons.bell, color: AppColors.textPrimary, size: 24),
+                    onPressed: () {
+                      ref.invalidate(recentSettlementsProvider);
+                      _showNotificationCenter(context, ref);
+                    },
+                  ),
+                  if (hasUnread)
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: AppColors.accentRose,
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.accentRose.withValues(alpha: 0.5),
+                              blurRadius: 4,
+                              spreadRadius: 1,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => context.push('/profile'),
+                child: CircleAvatar(
+                  radius: 22,
+                  backgroundColor: AppColors.accentCyan.withValues(alpha: 0.1),
+                  child: Text(initials, style: const TextStyle(color: AppColors.accentCyan, fontWeight: FontWeight.w700, fontSize: 14)),
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
+
+  void _showNotificationCenter(BuildContext context, WidgetRef ref) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withOpacity(0.55),
+      builder: (context) {
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.78,
+          decoration: const BoxDecoration(
+            color: AppColors.bgSecondary,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(24),
+              topRight: Radius.circular(24),
+            ),
+            border: Border(
+              top: BorderSide(color: AppColors.border, width: 1.5),
+            ),
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+              // Top drag indicator
+              Container(
+                width: 48,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: AppColors.textTertiary.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(2.5),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Notification Centre',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(LucideIcons.x, color: AppColors.textSecondary, size: 20),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Divider(color: AppColors.border, height: 1),
+              Expanded(
+                child: Consumer(
+                  builder: (context, ref, child) {
+                    final settlementsAsync = ref.watch(recentSettlementsProvider);
+
+                    return settlementsAsync.when(
+                      data: (settlements) {
+                        if (settlements.isEmpty) {
+                          return Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(20),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: AppColors.accentCyan.withOpacity(0.06),
+                                  ),
+                                  child: const Icon(
+                                    LucideIcons.bellOff,
+                                    color: AppColors.accentCyan,
+                                    size: 32,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                const Text(
+                                  'All Caught Up!',
+                                  style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'No recent group settlements or updates.',
+                                  style: TextStyle(
+                                    color: AppColors.textTertiary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+
+                        return ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                          itemCount: settlements.length,
+                          separatorBuilder: (context, index) => const SizedBox(height: 14),
+                          itemBuilder: (context, index) {
+                            final s = settlements[index];
+                            final amount = (s['amount'] as num).toDouble();
+                            final payer = s['payer_name'] ?? 'Someone';
+                            final receiver = s['receiver_name'] ?? 'Someone';
+                            final groupName = s['group_name'] ?? 'Group';
+                            final note = s['note'] as String?;
+                            final rawDate = s['settled_at'] as String?;
+                            
+                            String formattedTime = 'Just now';
+                            if (rawDate != null) {
+                              try {
+                                final dt = DateTime.parse(rawDate).toLocal();
+                                final diff = DateTime.now().difference(dt);
+                                if (diff.inMinutes < 1) {
+                                  formattedTime = 'Just now';
+                                } else if (diff.inMinutes < 60) {
+                                  formattedTime = '${diff.inMinutes}m ago';
+                                } else if (diff.inHours < 24) {
+                                  formattedTime = '${diff.inHours}h ago';
+                                } else {
+                                  formattedTime = '${diff.inDays}d ago';
+                                }
+                              } catch (_) {}
+                            }
+
+                            return Container(
+                              decoration: BoxDecoration(
+                                color: AppColors.bgTertiary.withOpacity(0.5),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: AppColors.border),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(16),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: () {
+                                      Navigator.pop(context);
+                                      context.push('/group-detail', extra: s['group_id']);
+                                    },
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(16),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.all(10),
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: AppColors.accentEmerald.withOpacity(0.12),
+                                              border: Border.all(color: AppColors.accentEmerald.withOpacity(0.2), width: 1),
+                                            ),
+                                            child: const Icon(
+                                              LucideIcons.check,
+                                              color: AppColors.accentEmerald,
+                                              size: 16,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 14),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                RichText(
+                                                  text: TextSpan(
+                                                    style: const TextStyle(
+                                                      color: AppColors.textPrimary,
+                                                      fontSize: 13,
+                                                      height: 1.4,
+                                                    ),
+                                                    children: [
+                                                      TextSpan(
+                                                        text: payer,
+                                                        style: const TextStyle(fontWeight: FontWeight.w800),
+                                                      ),
+                                                      const TextSpan(text: ' settled '),
+                                                      TextSpan(
+                                                        text: '₹${amount.toStringAsFixed(0)}',
+                                                        style: const TextStyle(
+                                                          color: AppColors.accentEmerald,
+                                                          fontWeight: FontWeight.w800,
+                                                        ),
+                                                      ),
+                                                      const TextSpan(text: ' with '),
+                                                      TextSpan(
+                                                        text: receiver,
+                                                        style: const TextStyle(fontWeight: FontWeight.w800),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 6),
+                                                Row(
+                                                  children: [
+                                                    Icon(LucideIcons.users, color: AppColors.accentPurple.withOpacity(0.8), size: 12),
+                                                    const SizedBox(width: 4),
+                                                    Text(
+                                                      groupName,
+                                                      style: const TextStyle(
+                                                        color: AppColors.textTertiary,
+                                                        fontSize: 11,
+                                                        fontWeight: FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 10),
+                                                    const Text('•', style: TextStyle(color: AppColors.textTertiary, fontSize: 10)),
+                                                    const SizedBox(width: 10),
+                                                    Text(
+                                                      formattedTime,
+                                                      style: const TextStyle(
+                                                        color: AppColors.textTertiary,
+                                                        fontSize: 11,
+                                                        fontWeight: FontWeight.w500,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                if (note != null && note.isNotEmpty) ...[
+                                                  const SizedBox(height: 8),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                                    decoration: BoxDecoration(
+                                                      color: AppColors.bgPrimary.withOpacity(0.4),
+                                                      borderRadius: BorderRadius.circular(8),
+                                                      border: Border.all(color: AppColors.border.withOpacity(0.5)),
+                                                    ),
+                                                    child: Text(
+                                                      '"$note"',
+                                                      style: const TextStyle(
+                                                        color: AppColors.textSecondary,
+                                                        fontSize: 11,
+                                                        fontStyle: FontStyle.italic,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                      loading: () => const Center(
+                        child: CircularProgressIndicator(color: AppColors.accentCyan),
+                      ),
+                      error: (err, _) => Center(
+                        child: Text(
+                          'Error loading: $err',
+                          style: const TextStyle(color: AppColors.accentRose, fontSize: 12),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
 
   // Total Balance Card
   Widget _buildBalanceCard(WidgetRef ref) {

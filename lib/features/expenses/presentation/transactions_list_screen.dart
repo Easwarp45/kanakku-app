@@ -161,6 +161,11 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
   Widget build(BuildContext context) {
     final expensesAsync = ref.watch(expensesStreamProvider);
 
+    Future<void> handleRefresh() async {
+      ref.invalidate(expensesStreamProvider);
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
     return Scaffold(
       backgroundColor: AppColors.bgPrimary,
       appBar: AppBar(
@@ -189,9 +194,14 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
       ),
       bottomNavigationBar: const AppBottomNav(currentIndex: 1),
       body: SafeArea(
-        child: CustomScrollView(
-          physics: const BouncingScrollPhysics(),
-          slivers: [
+        child: RefreshIndicator(
+          color: AppColors.accentCyan,
+          backgroundColor: AppColors.bgElevated,
+          onRefresh: handleRefresh,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+
             // Smart Filters Section
             SliverToBoxAdapter(
               child: Padding(
@@ -346,8 +356,9 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   List<Map<String, dynamic>> _filterExpenses(List<Map<String, dynamic>> expenses) {
     return expenses.where((e) {
