@@ -9,6 +9,54 @@ import '../../../core/theme/app_theme.dart';
 import '../data/group_service.dart';
 import '../../../core/providers/auth_provider.dart';
 
+final groupBalanceProvider = Provider.family<double, String>((ref, groupId) {
+  final expenses = ref.watch(groupExpensesStreamProvider(groupId)).value ?? [];
+  final members = ref.watch(groupMembersStreamProvider(groupId)).value ?? [];
+  final settlements = ref.watch(groupSettlementsStreamProvider(groupId)).value ?? [];
+  final currentUserId = ref.watch(currentUserProvider)?.id ?? '';
+
+  double myBalance = 0;
+  if (members.isNotEmpty && currentUserId.isNotEmpty) {
+    for (var e in expenses) {
+      final paidBy = e['paid_by'] as String?;
+      final amountVal = e['amount'];
+      if (paidBy == null || amountVal == null) continue;
+      final amount = (amountVal as num).toDouble();
+      final share = amount / members.length;
+      if (paidBy == currentUserId) {
+        myBalance += (amount - share);
+      } else {
+        myBalance -= share;
+      }
+    }
+    for (var s in settlements) {
+      final paidBy = s['paid_by'] as String?;
+      final paidTo = s['paid_to'] as String?;
+      final amountVal = s['amount'];
+      if (paidBy == null || paidTo == null || amountVal == null) continue;
+      final amount = (amountVal as num).toDouble();
+      if (paidBy == currentUserId) {
+        myBalance += amount;
+      } else if (paidTo == currentUserId) {
+        myBalance -= amount;
+      }
+    }
+  }
+  return myBalance;
+});
+
+final overallNetBalanceProvider = Provider<double>((ref) {
+  final groups = ref.watch(groupsStreamProvider).value ?? [];
+  double total = 0.0;
+  for (final group in groups) {
+    final groupId = group['id'];
+    if (groupId != null) {
+      total += ref.watch(groupBalanceProvider(groupId));
+    }
+  }
+  return total;
+});
+
 class GroupsListScreen extends ConsumerStatefulWidget {
   const GroupsListScreen({super.key});
 
@@ -18,6 +66,7 @@ class GroupsListScreen extends ConsumerStatefulWidget {
 
 class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
   bool _showSearch = false;
+  String _searchQuery = '';
 
   void _showJoinGroupDialog() {
     final controller = TextEditingController();
@@ -127,31 +176,31 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
               SliverToBoxAdapter(child: const SizedBox(height: 24)),
               SliverToBoxAdapter(child: _buildQuickActions(context)),
               SliverToBoxAdapter(child: const SizedBox(height: 24)),
-              SliverToBoxAdapter(child: _buildActiveSettlements()),
-              SliverToBoxAdapter(child: const SizedBox(height: 24)),
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Your Groups', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-                      const Icon(LucideIcons.slidersHorizontal, color: AppColors.textTertiary, size: 20),
-                    ],
-                  ),
+                  child: const Text('Your Groups', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
                 ),
               ),
               SliverToBoxAdapter(child: const SizedBox(height: 8)),
               groupsAsync.when(
                 data: (groups) {
-                  if (groups.isEmpty) {
-                    return const SliverToBoxAdapter(
+                  final filteredGroups = groups.where((g) {
+                    if (!_showSearch || _searchQuery.isEmpty) return true;
+                    final name = (g['name'] ?? '').toString().toLowerCase();
+                    return name.contains(_searchQuery.toLowerCase());
+                  }).toList();
+
+                  if (filteredGroups.isEmpty) {
+                    return SliverToBoxAdapter(
                       child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+                        padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
                         child: Center(
                           child: Text(
-                            "You aren't in any groups yet. Create one!",
-                            style: TextStyle(color: AppColors.textSecondary),
+                            _showSearch && _searchQuery.isNotEmpty
+                                ? "No groups match your search."
+                                : "You aren't in any groups yet. Create one!",
+                            style: const TextStyle(color: AppColors.textSecondary),
                           ),
                         ),
                       ),
@@ -160,10 +209,10 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
                   return SliverList(
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
-                        final group = groups[index];
+                        final group = filteredGroups[index];
                         return GroupCard(group: group, currentUserId: currentUserId);
                       },
-                      childCount: groups.length,
+                      childCount: filteredGroups.length,
                     ),
                   );
                 },
@@ -202,7 +251,10 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
           ),
           IconButton(
             icon: Icon(_showSearch ? LucideIcons.x : LucideIcons.search, color: AppColors.textPrimary),
-            onPressed: () => setState(() => _showSearch = !_showSearch),
+            onPressed: () => setState(() {
+              _showSearch = !_showSearch;
+              if (!_showSearch) _searchQuery = '';
+            }),
           ),
         ],
       ),
@@ -211,6 +263,9 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
 
 
   Widget _buildSummaryCard(WidgetRef ref, AsyncValue<List<Map<String, dynamic>>> groupsAsync, String currentUserId) {
+    final overallBalance = ref.watch(overallNetBalanceProvider);
+    final isOwed = overallBalance >= 0;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Container(
@@ -232,13 +287,23 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
                 children: [
                   Row(
                     children: [
-                      Icon(LucideIcons.arrowUpRight, color: Colors.white.withValues(alpha: 0.8), size: 16),
+                      Icon(
+                        isOwed ? LucideIcons.arrowUpRight : LucideIcons.arrowDownLeft,
+                        color: Colors.white.withValues(alpha: 0.8),
+                        size: 16,
+                      ),
                       const SizedBox(width: 6),
-                      Text('Net Balance', style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13, fontWeight: FontWeight.w600)),
+                      Text(
+                        isOwed ? 'You are owed' : 'You owe',
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  const Text('Active Tracking', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                  Text(
+                    '₹${overallBalance.abs().toStringAsFixed(2)}',
+                    style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.5),
+                  ),
                 ],
               ),
             ),
@@ -273,78 +338,28 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
   Widget _buildQuickActions(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Row(
-        children: [
-          Expanded(
-            child: GestureDetector(
-              onTap: () {},
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(color: AppColors.accentEmerald.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(14), border: Border.all(color: AppColors.accentEmerald.withValues(alpha: 0.2))),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(LucideIcons.checkCircle, color: AppColors.accentEmerald, size: 18),
-                    SizedBox(width: 8),
-                    Text('Settle Up', style: TextStyle(color: AppColors.accentEmerald, fontWeight: FontWeight.w700)),
-                  ],
-                ),
-              ),
-            ),
+      child: GestureDetector(
+        onTap: _showJoinGroupDialog,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            color: AppColors.accentCyan.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.accentCyan.withValues(alpha: 0.2)),
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: GestureDetector(
-              onTap: _showJoinGroupDialog,
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(color: AppColors.accentCyan.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(14), border: Border.all(color: AppColors.accentCyan.withValues(alpha: 0.2))),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(LucideIcons.users, color: AppColors.accentCyan, size: 18),
-                    SizedBox(width: 8),
-                    Text('Join Group', style: TextStyle(color: AppColors.accentCyan, fontWeight: FontWeight.w700)),
-                  ],
-                ),
-              ),
-            ),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(LucideIcons.users, color: AppColors.accentCyan, size: 18),
+              SizedBox(width: 8),
+              Text('Join Group', style: TextStyle(color: AppColors.accentCyan, fontWeight: FontWeight.w700)),
+            ],
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActiveSettlements() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: GlassCard(
-        margin: EdgeInsets.zero,
-        borderColor: AppColors.accentAmber.withValues(alpha: 0.3),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: AppColors.accentAmber.withValues(alpha: 0.15), shape: BoxShape.circle),
-              child: const Icon(LucideIcons.clock, color: AppColors.accentAmber, size: 20),
-            ),
-            const SizedBox(width: 16),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Production Mode Active', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 14)),
-                  SizedBox(height: 4),
-                  Text('Real-time data synchronization enabled', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                ],
-              ),
-            ),
-            const Icon(LucideIcons.shieldCheck, color: AppColors.accentCyan, size: 18),
-          ],
         ),
       ),
     );
   }
+
 
   Widget _buildSearchBar() {
     return AnimatedSize(
@@ -354,18 +369,25 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
           ? const SizedBox.shrink()
           : Container(
               margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
                 color: AppColors.bgSecondary,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: AppColors.border),
               ),
-              child: const Row(
-                children: [
-                  Icon(LucideIcons.search, color: AppColors.textTertiary, size: 18),
-                  SizedBox(width: 12),
-                  Expanded(child: Text('Search groups...', style: TextStyle(color: AppColors.textTertiary, fontSize: 14))),
-                ],
+              child: TextField(
+                style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
+                decoration: const InputDecoration(
+                  hintText: 'Search groups...',
+                  hintStyle: TextStyle(color: AppColors.textTertiary),
+                  prefixIcon: Icon(LucideIcons.search, color: AppColors.textTertiary, size: 18),
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+                onChanged: (val) {
+                  setState(() {
+                    _searchQuery = val.trim();
+                  });
+                },
               ),
             ),
     );
@@ -450,8 +472,10 @@ class GroupCard extends ConsumerWidget {
                       double myBalance = 0;
                       if (members.isNotEmpty) {
                         for (var e in expenses) {
-                          final paidBy = e['paid_by'];
-                          final amount = (e['amount'] as num).toDouble();
+                          final paidBy = e['paid_by'] as String?;
+                          final amountVal = e['amount'];
+                          if (paidBy == null || amountVal == null) continue;
+                          final amount = (amountVal as num).toDouble();
                           final share = amount / members.length;
                           if (paidBy == currentUserId) {
                             myBalance += (amount - share);
@@ -460,10 +484,14 @@ class GroupCard extends ConsumerWidget {
                           }
                         }
                         for (var s in settlements) {
-                          final amount = (s['amount'] as num).toDouble();
-                          if (s['paid_by'] == currentUserId) {
+                          final paidBy = s['paid_by'] as String?;
+                          final paidTo = s['paid_to'] as String?;
+                          final amountVal = s['amount'];
+                          if (paidBy == null || paidTo == null || amountVal == null) continue;
+                          final amount = (amountVal as num).toDouble();
+                          if (paidBy == currentUserId) {
                             myBalance += amount;
-                          } else if (s['paid_to'] == currentUserId) {
+                          } else if (paidTo == currentUserId) {
                             myBalance -= amount;
                           }
                         }

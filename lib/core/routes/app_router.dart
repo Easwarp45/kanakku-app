@@ -89,7 +89,16 @@ final routerProvider = Provider<GoRouter>((ref) {
           return _buildPage(state, GroupExpenseEntryScreen(groupId: id));
         }
       ),
-      GoRoute(path: '/edit-group-expense', pageBuilder: (context, state) => _buildPage(state, const EditGroupExpenseScreen())),
+      GoRoute(
+        path: '/edit-group-expense', 
+        pageBuilder: (context, state) {
+          final data = state.extra as Map<String, dynamic>?;
+          return _buildPage(state, EditGroupExpenseScreen(
+            groupId: data?['groupId'] as String?,
+            expense: data?['expense'] as Map<String, dynamic>?,
+          ));
+        }
+      ),
       GoRoute(
         path: '/settle-up', 
         pageBuilder: (context, state) {

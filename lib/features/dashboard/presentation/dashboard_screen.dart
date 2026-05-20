@@ -711,13 +711,18 @@ class DashboardScreen extends ConsumerWidget {
   static Widget _buildTransactionItem(Map<String, dynamic> t) {
     final isIncome = t['is_income'] == true;
     final amount = t['amount'] is num ? (t['amount'] as num).toDouble() : double.tryParse(t['amount'].toString()) ?? 0.0;
-    
-    // For income: DB has 'description' and 'source'
-    // For expenses: DB has 'description' and 'category'
-    final displayTitle = t['description']?.toString() ?? (isIncome ? 'Income' : 'Expense');
-    final subText = isIncome 
+
+    // Raw description may contain an embedded group token:
+    // [GroupExpense: <uuid>|GroupName: <name>] actual title
+    final rawDesc = t['description']?.toString() ?? '';
+    final groupName = _parseGroupName(rawDesc);
+    final cleanTitle = _stripGroupToken(rawDesc);
+    final displayTitle = cleanTitle.isNotEmpty ? cleanTitle : (isIncome ? 'Income' : 'Expense');
+    final subText = isIncome
         ? (t['source']?.toString() ?? 'income')
-        : (t['category']?.toString() ?? 'expense');
+        : groupName != null
+            ? 'via $groupName'
+            : (t['category']?.toString() ?? 'expense');
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -747,5 +752,16 @@ class DashboardScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  /// Strips the [GroupExpense: ...|GroupName: ...] token from the description.
+  static String _stripGroupToken(String raw) {
+    return raw.replaceFirst(RegExp(r'^\[GroupExpense:[^\]]+\]\s*'), '').trim();
+  }
+
+  /// Extracts the embedded group name from the token, returns null if not present.
+  static String? _parseGroupName(String raw) {
+    final match = RegExp(r'^\[GroupExpense:[^|]+\|GroupName:\s*([^\]]+)\]').firstMatch(raw);
+    return match?.group(1)?.trim();
   }
 }

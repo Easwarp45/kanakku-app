@@ -332,7 +332,15 @@ class GroupService {
           // Combine: temp entries on top, then confirmed server entries
           final serverIds = data.map((e) => e['id']?.toString()).toSet();
           final filteredTemps = tempEntries
-              .where((t) => !serverIds.contains(t['id']?.toString()))
+              .where((t) {
+                if (serverIds.contains(t['id']?.toString())) return false;
+                final hasMatch = data.any((e) =>
+                    e['description'] == t['description'] &&
+                    (e['amount'] as num).toDouble() == (t['amount'] as num).toDouble() &&
+                    e['category'] == t['category'] &&
+                    e['paid_by'] == t['paid_by']);
+                return !hasMatch;
+              })
               .toList();
 
           final merged = [...filteredTemps, ...data];
@@ -415,7 +423,14 @@ class GroupService {
               .toList();
           final serverIds = data.map((e) => e['id']?.toString()).toSet();
           final filteredTemps = tempEntries
-              .where((t) => !serverIds.contains(t['id']?.toString()))
+              .where((t) {
+                if (serverIds.contains(t['id']?.toString())) return false;
+                final hasMatch = data.any((e) =>
+                    e['paid_by'] == t['paid_by'] &&
+                    e['paid_to'] == t['paid_to'] &&
+                    (e['amount'] as num).toDouble() == (t['amount'] as num).toDouble());
+                return !hasMatch;
+              })
               .toList();
 
           final merged = [...filteredTemps, ...data];
@@ -563,19 +578,23 @@ class GroupService {
     required String description,
     required double amount,
     required String category,
+    String? paidBy,
     String splitType = 'equal',
+    Map<String, double>? customSplits,
   }) async {
     if (_userId == null) throw Exception('User not authenticated');
 
+    final actualPaidBy = paidBy ?? _userId!;
     final tempId = 'temp_${_uuid.v4()}';
+    final actualSplitType = (splitType == 'unequal') ? 'custom' : splitType;
     final tempData = {
       'id': tempId,
       'group_id': groupId,
-      'paid_by': _userId,
+      'paid_by': actualPaidBy,
       'amount': amount,
       'description': description,
       'category': category,
-      'split_type': splitType,
+      'split_type': actualSplitType,
       'expense_date': DateTime.now().toIso8601String(),
     };
 
@@ -586,30 +605,74 @@ class GroupService {
     try {
       final expense = await _client.from('group_expenses').insert({
         'group_id': groupId,
-        'paid_by': _userId,
+        'paid_by': actualPaidBy,
         'amount': amount,
         'description': description,
         'category': category,
-        'split_type': splitType,
+        'split_type': actualSplitType,
       }).select().single();
 
-      if (splitType == 'equal') {
+      if (actualSplitType == 'equal') {
         final members = await _client
             .from('group_members')
             .select('user_id')
             .eq('group_id', groupId);
-        if (members.isNotEmpty) {
-          final splitAmount = amount / members.length;
+        
+        final uniqueUserIds = members
+            .map((m) => m['user_id'] as String?)
+            .whereType<String>()
+            .toSet()
+            .toList();
+
+        if (uniqueUserIds.isNotEmpty) {
+          final splitAmount = amount / uniqueUserIds.length;
           await _client.from('expense_splits').insert(
-            members.map((m) => {
+            uniqueUserIds.map((userId) => {
               'group_expense_id': expense['id'],
-              'user_id': m['user_id'],
+              'user_id': userId,
               'amount': splitAmount,
             }).toList(),
           );
         }
+      } else if (actualSplitType == 'custom' && customSplits != null) {
+        final splitRows = customSplits.entries.map((entry) => {
+          'group_expense_id': expense['id'],
+          'user_id': entry.key,
+          'amount': entry.value,
+        }).toList();
+        await _client.from('expense_splits').insert(splitRows);
       }
-      // Realtime stream will replace temp entry with confirmed one
+
+      // Replace the temp entry in local cache with the real confirmed one
+      final current = LocalCacheService.getCachedList('group_expenses_$groupId');
+      final updated = current.map((e) => e['id'] == tempId ? expense : e).toList();
+      await LocalCacheService.cacheData('group_expenses_$groupId', updated);
+
+      // Auto-replicate to personal expenses if paid by current user
+      if (actualPaidBy == _userId) {
+        // Fetch the group name to embed in the token for display purposes
+        String groupName = groupId;
+        try {
+          final groupRow = await _client
+              .from('groups')
+              .select('name')
+              .eq('id', groupId)
+              .maybeSingle();
+          if (groupRow != null && groupRow['name'] != null) {
+            groupName = groupRow['name'].toString();
+          }
+        } catch (_) {}
+        final personalDesc = '[GroupExpense: ${expense['id']}|GroupName: $groupName] $description';
+        await _client.from('expenses').insert({
+          'user_id': _userId,
+          'amount': amount,
+          'description': personalDesc,
+          'category': category,
+          'expense_date': DateTime.now().toIso8601String().split('T')[0],
+          'payment_method': 'upi',
+        });
+        await LocalCacheService.invalidate('expenses_$_userId');
+      }
     } catch (_) {
       // Revert optimistic
       final current = LocalCacheService.getCachedList('group_expenses_$groupId');
@@ -617,6 +680,148 @@ class GroupService {
           current.where((e) => e['id'] != tempId).toList());
       rethrow;
     }
+  }
+
+  Future<List<Map<String, dynamic>>> getExpenseSplits(String expenseId) async {
+    final response = await _client
+        .from('expense_splits')
+        .select('*')
+        .eq('group_expense_id', expenseId);
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  Future<void> updateGroupExpense({
+    required String groupId,
+    required String expenseId,
+    required String description,
+    required double amount,
+    required String category,
+    required String paidBy,
+    required String splitType,
+    Map<String, double>? customSplits,
+  }) async {
+    if (_userId == null) throw Exception('User not authenticated');
+    final actualSplitType = (splitType == 'unequal') ? 'custom' : splitType;
+
+    // 1. Update group_expenses
+    await _client.from('group_expenses').update({
+      'description': description,
+      'amount': amount,
+      'category': category,
+      'paid_by': paidBy,
+      'split_type': actualSplitType,
+    }).eq('id', expenseId);
+
+    // 2. Clear old splits
+    await _client.from('expense_splits').delete().eq('group_expense_id', expenseId);
+
+    // 3. Re-create splits
+    if (actualSplitType == 'equal') {
+      final members = await _client
+          .from('group_members')
+          .select('user_id')
+          .eq('group_id', groupId);
+      
+      final uniqueUserIds = members
+          .map((m) => m['user_id'] as String?)
+          .whereType<String>()
+          .toSet()
+          .toList();
+
+      if (uniqueUserIds.isNotEmpty) {
+        final splitAmount = amount / uniqueUserIds.length;
+        final splitRows = uniqueUserIds.map((userId) => {
+          'group_expense_id': expenseId,
+          'user_id': userId,
+          'amount': splitAmount,
+        }).toList();
+        await _client.from('expense_splits').upsert(
+              splitRows,
+              onConflict: 'group_expense_id,user_id',
+            );
+      }
+    } else if (actualSplitType == 'custom' && customSplits != null) {
+      final splitRows = customSplits.entries.map((entry) => {
+        'group_expense_id': expenseId,
+        'user_id': entry.key,
+        'amount': entry.value,
+      }).toList();
+      await _client.from('expense_splits').upsert(
+            splitRows,
+            onConflict: 'group_expense_id,user_id',
+          );
+    }
+
+    // Replicate / sync to personal expenses
+    if (_userId != null) {
+      final personalDescPattern = '[GroupExpense: $expenseId]';
+      final existingPersonal = await _client
+          .from('expenses')
+          .select('id')
+          .eq('user_id', _userId!)
+          .like('description', '%$personalDescPattern%')
+          .maybeSingle();
+
+      if (paidBy == _userId) {
+        // Fetch the group name to embed in the token for display purposes
+        String groupName = groupId;
+        try {
+          final groupRow = await _client
+              .from('groups')
+              .select('name')
+              .eq('id', groupId)
+              .maybeSingle();
+          if (groupRow != null && groupRow['name'] != null) {
+            groupName = groupRow['name'].toString();
+          }
+        } catch (_) {}
+        final personalDesc = '[GroupExpense: $expenseId|GroupName: $groupName] $description';
+        if (existingPersonal != null) {
+          await _client.from('expenses').update({
+            'amount': amount,
+            'description': personalDesc,
+            'category': category,
+          }).eq('id', existingPersonal['id']);
+        } else {
+          await _client.from('expenses').insert({
+            'user_id': _userId,
+            'amount': amount,
+            'description': personalDesc,
+            'category': category,
+            'expense_date': DateTime.now().toIso8601String().split('T')[0],
+            'payment_method': 'upi',
+          });
+        }
+        await LocalCacheService.invalidate('expenses_$_userId');
+      } else {
+        if (existingPersonal != null) {
+          await _client.from('expenses').delete().eq('id', existingPersonal['id']);
+          await LocalCacheService.invalidate('expenses_$_userId');
+        }
+      }
+    }
+
+    // Invalidate local caches
+    await LocalCacheService.invalidate('group_expenses_$groupId');
+  }
+
+  Future<void> deleteGroupExpense(String groupId, String expenseId) async {
+    if (_userId == null) throw Exception('User not authenticated');
+
+    // Delete replicated personal expense
+    final personalDescPattern = '[GroupExpense: $expenseId]';
+    await _client
+        .from('expenses')
+        .delete()
+        .eq('user_id', _userId!)
+        .like('description', '%$personalDescPattern%');
+    await LocalCacheService.invalidate('expenses_$_userId');
+
+    // Deleting the group_expense will automatically clean up expense_splits due to cascades
+    await _client.from('group_expenses').delete().eq('id', expenseId);
+
+    // Invalidate local caches
+    await LocalCacheService.invalidate('group_expenses_$groupId');
   }
 
   // ── Settlements ─────────────────────────────────────────────────────────────
@@ -644,13 +849,17 @@ class GroupService {
     await LocalCacheService.cacheData('settlements_$groupId', [tempData, ...cached]);
 
     try {
-      await _client.from('settlements').insert({
+      final settlement = await _client.from('settlements').insert({
         'group_id': groupId,
         'paid_by': _userId,
         'paid_to': paidTo,
         'amount': amount,
         'note': note,
-      });
+      }).select().single();
+
+      final current = LocalCacheService.getCachedList('settlements_$groupId');
+      final updated = current.map((e) => e['id'] == tempId ? settlement : e).toList();
+      await LocalCacheService.cacheData('settlements_$groupId', updated);
     } catch (_) {
       final current = LocalCacheService.getCachedList('settlements_$groupId');
       await LocalCacheService.cacheData('settlements_$groupId',
@@ -662,6 +871,26 @@ class GroupService {
   // ── Member Management ───────────────────────────────────────────────────────
 
   Future<void> deleteGroup(String groupId) async {
+    if (_userId != null) {
+      final expenses = await _client
+          .from('group_expenses')
+          .select('id')
+          .eq('group_id', groupId);
+
+      if (expenses.isNotEmpty) {
+        for (final exp in expenses) {
+          final expenseId = exp['id'];
+          final personalDescPattern = '[GroupExpense: $expenseId]';
+          await _client
+              .from('expenses')
+              .delete()
+              .eq('user_id', _userId!)
+              .like('description', '%$personalDescPattern%');
+        }
+        await LocalCacheService.invalidate('expenses_$_userId');
+      }
+    }
+
     await _client.from('groups').delete().eq('id', groupId);
     await _clearGroupCaches(groupId);
     await LocalCacheService.invalidate('groups_$_userId');

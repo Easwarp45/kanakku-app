@@ -6,7 +6,6 @@ import '../../../shared/widgets/glass_card.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/providers/auth_provider.dart';
 import '../data/group_service.dart';
 
 class SettleUpScreen extends ConsumerStatefulWidget {
@@ -49,8 +48,21 @@ class _SettleUpScreenState extends ConsumerState<SettleUpScreen> {
   @override
   Widget build(BuildContext context) {
     final data = widget.settlementData;
-    final amount = data?['amount'] ?? 0.0;
-    final name = data?['name'] ?? 'Recipient';
+    if (data == null || data['groupId'] == null || data['paidTo'] == null) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Settle Up'),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(icon: const Icon(LucideIcons.x, color: AppColors.textPrimary), onPressed: () => context.pop()),
+        ),
+        body: const Center(
+          child: Text('Error: Invalid settlement data', style: TextStyle(color: AppColors.textSecondary)),
+        ),
+      );
+    }
+    final amount = data['amount'] ?? 0.0;
+    final name = data['name'] ?? 'Recipient';
 
     return Scaffold(
       appBar: AppBar(
@@ -69,7 +81,7 @@ class _SettleUpScreenState extends ConsumerState<SettleUpScreen> {
               CircleAvatar(
                 radius: 40, 
                 backgroundColor: AppColors.accentEmerald.withValues(alpha: 0.1),
-                child: Text(name.substring(0, 1).toUpperCase(), style: const TextStyle(color: AppColors.accentEmerald, fontSize: 32, fontWeight: FontWeight.w800)),
+                child: Text(name.isEmpty ? 'R' : name.substring(0, 1).toUpperCase(), style: const TextStyle(color: AppColors.accentEmerald, fontSize: 32, fontWeight: FontWeight.w800)),
               ),
               const SizedBox(height: 16),
               Text('You are paying $name', style: const TextStyle(color: AppColors.textSecondary, fontSize: 16)),

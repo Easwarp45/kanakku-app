@@ -120,7 +120,10 @@ class ChatReconciliationEngine {
   // Stream controller for UI updates
   final _controller = StreamController<List<ChatMessage>>.broadcast();
 
-  Stream<List<ChatMessage>> get stream => _controller.stream;
+  Stream<List<ChatMessage>> get stream async* {
+    yield _sortedMessages();
+    yield* _controller.stream;
+  }
 
   ChatReconciliationEngine(this.groupId) {
     _loadFromCache();

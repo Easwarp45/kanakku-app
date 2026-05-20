@@ -9,6 +9,7 @@ import '../../../core/theme/app_theme.dart';
 import '../data/group_service.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/membership_guard_provider.dart';
+import '../../expenses/data/expense_service.dart';
 import '../../../core/database/local_cache_service.dart';
 import '../../../core/database/chat_reconciliation_engine.dart';
 
@@ -24,6 +25,7 @@ class GroupDetailScreen extends ConsumerStatefulWidget {
 class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  bool _isRefreshing = false;
 
   @override
   void initState() {
@@ -41,41 +43,57 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
   }
 
   Future<void> _handleGroupRefresh() async {
+    if (mounted) {
+      setState(() => _isRefreshing = true);
+    }
     if (widget.groupId != null) {
       ref.invalidate(groupDetailStreamProvider(widget.groupId!));
       ref.invalidate(groupExpensesStreamProvider(widget.groupId!));
       ref.invalidate(groupMembersStreamProvider(widget.groupId!));
       ref.invalidate(groupSettlementsStreamProvider(widget.groupId!));
       ref.invalidate(membershipGuardProvider(widget.groupId!));
+      ref.invalidate(groupChatStreamProvider(widget.groupId!));
+      ref.invalidate(reconciledChatStreamProvider(widget.groupId!));
     }
     await Future.delayed(const Duration(milliseconds: 500));
+    if (mounted) {
+      setState(() => _isRefreshing = false);
+    }
   }
 
   Map<String, double> _calculateBalances(String currentUserId, List<Map<String, dynamic>> expenses, List<Map<String, dynamic>> settlements, List<Map<String, dynamic>> members) {
     if (members.isEmpty) return {};
     Map<String, double> balances = {};
     for (var m in members) {
-      balances[m['user_id']] = 0.0;
+      final uId = m['user_id'] as String?;
+      if (uId != null) {
+        balances[uId] = 0.0;
+      }
     }
 
     for (var e in expenses) {
-      final paidBy = e['paid_by'];
-      final amount = (e['amount'] as num).toDouble();
+      final paidBy = e['paid_by'] as String?;
+      final amountVal = e['amount'];
+      if (paidBy == null || amountVal == null) continue;
+      final amount = (amountVal as num).toDouble();
       final splitAmount = amount / members.length;
       
       balances[paidBy] = (balances[paidBy] ?? 0) + (amount - splitAmount);
       
       for (var m in members) {
-        if (m['user_id'] != paidBy) {
-          balances[m['user_id']] = (balances[m['user_id']] ?? 0) - splitAmount;
+        final uId = m['user_id'] as String?;
+        if (uId != null && uId != paidBy) {
+          balances[uId] = (balances[uId] ?? 0) - splitAmount;
         }
       }
     }
 
     for (var s in settlements) {
-      final paidBy = s['paid_by'];
-      final paidTo = s['paid_to'];
-      final amount = (s['amount'] as num).toDouble();
+      final paidBy = s['paid_by'] as String?;
+      final paidTo = s['paid_to'] as String?;
+      final amountVal = s['amount'];
+      if (paidBy == null || paidTo == null || amountVal == null) continue;
+      final amount = (amountVal as num).toDouble();
       
       balances[paidBy] = (balances[paidBy] ?? 0) + amount;
       balances[paidTo] = (balances[paidTo] ?? 0) - amount;
@@ -215,7 +233,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
       body: SafeArea(
         child: Column(
           children: [
-            RepaintBoundary(child: _buildHeader(context, safeGroup)),
+            RepaintBoundary(child: _buildHeader(context, safeGroup, members, currentUserId)),
             if (!isKeyboardOpen)
               RepaintBoundary(
                 child: _buildGlassHeroCard(
@@ -240,6 +258,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
                       members: members,
                       currentUserId: currentUserId,
                       inviteCode: safeGroup['invite_code'] ?? '',
+                      onRefresh: _handleGroupRefresh,
                     ),
                   ),
                   RepaintBoundary(
@@ -274,13 +293,16 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
     );
   }
 
-  Widget _buildHeader(BuildContext context, Map<String, dynamic> group) {
+  Widget _buildHeader(BuildContext context, Map<String, dynamic> group, List<Map<String, dynamic>> members, String currentUserId) {
     final name = group['name'] ?? 'Unknown Group';
     final desc = group['description'] ?? 'No description';
     String initials = 'G';
     if (name.isNotEmpty) {
       initials = name.substring(0, 1).toUpperCase();
     }
+
+    final amIAdmin = members.any((m) => m['user_id'] == currentUserId && m['is_admin'] == true);
+    final myMemberInfo = members.firstWhere((m) => m['user_id'] == currentUserId, orElse: () => <String, dynamic>{});
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -308,6 +330,34 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
               ],
             ),
           ),
+          _isRefreshing
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.accentCyan),
+                  ),
+                )
+              : IconButton(
+                  icon: const Icon(LucideIcons.refreshCw, color: AppColors.textSecondary, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  tooltip: 'Refresh Group',
+                  onPressed: () async {
+                    await _handleGroupRefresh();
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Group details refreshed'),
+                          duration: Duration(seconds: 1),
+                          backgroundColor: AppColors.bgSecondary,
+                        ),
+                      );
+                    }
+                  },
+                ),
+          const SizedBox(width: 16),
           IconButton(
             icon: const Icon(LucideIcons.settings, color: AppColors.textSecondary),
             padding: EdgeInsets.zero,
@@ -333,14 +383,14 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
                         const SizedBox(height: 8),
                         Text(desc, style: const TextStyle(color: AppColors.textSecondary, fontSize: 14)),
                       ],
-                      const SizedBox(height: 32),
+                      const SizedBox(height: 24),
                       const Text('Invite Code', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w600)),
                       const SizedBox(height: 8),
                       GestureDetector(
                         onTap: () {
                           Clipboard.setData(ClipboardData(text: inviteCode));
                           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invite code copied!')));
-                          context.pop();
+                          Navigator.pop(context);
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -355,7 +405,33 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
                           ),
                         ),
                       ),
-                      const SizedBox(height: 32),
+                      const SizedBox(height: 20),
+                      const Divider(color: AppColors.border, height: 1),
+                      const SizedBox(height: 12),
+                      if (myMemberInfo.isNotEmpty)
+                        ListTile(
+                          leading: const Icon(LucideIcons.logOut, color: AppColors.accentRose),
+                          title: const Text('Leave Group', style: TextStyle(color: AppColors.accentRose, fontWeight: FontWeight.w700)),
+                          subtitle: const Text('You will no longer be part of this group', style: TextStyle(color: AppColors.textTertiary, fontSize: 11)),
+                          onTap: () {
+                            Navigator.pop(context); // Close bottom sheet
+                            _showLeaveGroupDialog(context, ref, widget.groupId!, myMemberInfo);
+                          },
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      if (amIAdmin) ...[
+                        const SizedBox(height: 8),
+                        ListTile(
+                          leading: const Icon(LucideIcons.trash2, color: AppColors.accentRose),
+                          title: const Text('Delete Group', style: TextStyle(color: AppColors.accentRose, fontWeight: FontWeight.w700)),
+                          subtitle: const Text('Permanently delete the group and all its data', style: TextStyle(color: AppColors.textTertiary, fontSize: 11)),
+                          onTap: () {
+                            Navigator.pop(context); // Close bottom sheet
+                            _showDeleteGroupDialog(context, ref, widget.groupId!);
+                          },
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -513,19 +589,27 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
   Widget _buildExpensesTab(List<Map<String, dynamic>> expenses, List<Map<String, dynamic>> members, String currentUserId) {
     final Widget content;
     if (expenses.isEmpty) {
-      content = const SingleChildScrollView(
-        physics: BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-        child: SizedBox(
-          height: 350,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(LucideIcons.receipt, color: AppColors.textTertiary, size: 40),
-              SizedBox(height: 16),
-              Text('No expenses recorded yet', style: TextStyle(color: AppColors.textSecondary, fontSize: 15, fontWeight: FontWeight.w600)),
-              SizedBox(height: 6),
-              Text('Tap "+" below to add your first bill', style: TextStyle(color: AppColors.textTertiary, fontSize: 13)),
-            ],
+      content = LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: constraints.maxHeight,
+              minWidth: constraints.maxWidth,
+            ),
+            child: const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Icon(LucideIcons.receipt, color: AppColors.textTertiary, size: 40),
+                  SizedBox(height: 16),
+                  Text('No expenses recorded yet', style: TextStyle(color: AppColors.textSecondary, fontSize: 15, fontWeight: FontWeight.w600)),
+                  SizedBox(height: 6),
+                  Text('Tap "+" below to add your first bill', style: TextStyle(color: AppColors.textTertiary, fontSize: 13)),
+                ],
+              ),
+            ),
           ),
         ),
       );
@@ -549,6 +633,21 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
           return GlassCard(
             margin: EdgeInsets.zero,
             borderRadius: 16,
+            onTap: () {
+              if (e['id']?.toString().startsWith('temp_') == true) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Expense is syncing with the server. Please wait...'),
+                    duration: Duration(seconds: 1),
+                  ),
+                );
+                return;
+              }
+              context.push('/edit-group-expense', extra: {
+                'groupId': widget.groupId,
+                'expense': e,
+              });
+            },
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
@@ -614,19 +713,28 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
     
     final Widget content;
     if (otherMembers.isEmpty) {
-      content = const SingleChildScrollView(
-        physics: BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-        child: SizedBox(
-          height: 350,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(LucideIcons.users, color: AppColors.textTertiary, size: 40),
-              SizedBox(height: 16),
-              Text('No members in group yet', style: TextStyle(color: AppColors.textSecondary, fontSize: 15, fontWeight: FontWeight.w600)),
-              SizedBox(height: 6),
-              Text('Share invite code to add group members', style: TextStyle(color: AppColors.textTertiary, fontSize: 13)),
-            ],
+      content = LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: constraints.maxHeight,
+              minWidth: constraints.maxWidth,
+            ),
+            child: const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Icon(LucideIcons.users, color: AppColors.textTertiary, size: 40),
+                  SizedBox(height: 16),
+                  Text('No members in group yet', style: TextStyle(color: AppColors.textSecondary, fontSize: 15, fontWeight: FontWeight.w600)),
+                  SizedBox(height: 6),
+                  Text('Share invite code to add group members', style: TextStyle(color: AppColors.textTertiary, fontSize: 13)),
+                ],
+              ),
+            ),
           ),
         ),
       );
@@ -650,9 +758,15 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
                   CircleAvatar(
                     radius: 20, 
                     backgroundColor: (isOwedByThem ? AppColors.accentCyan : AppColors.accentRose).withOpacity(0.1),
-                    child: Text(
-                      (m['nickname'] ?? m['display_name'] ?? 'U').substring(0, 1).toUpperCase(), 
-                      style: TextStyle(color: isOwedByThem ? AppColors.accentCyan : AppColors.accentRose, fontSize: 14, fontWeight: FontWeight.w800)
+                    child: Builder(
+                      builder: (context) {
+                        final displayName = m['nickname']?.toString() ?? m['display_name']?.toString() ?? 'U';
+                        final displayInitials = displayName.trim().isEmpty ? 'U' : displayName.trim().substring(0, 1).toUpperCase();
+                        return Text(
+                          displayInitials,
+                          style: TextStyle(color: isOwedByThem ? AppColors.accentCyan : AppColors.accentRose, fontSize: 14, fontWeight: FontWeight.w800),
+                        );
+                      }
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -840,6 +954,12 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
                         onPressed: () => _showRemoveMemberDialog(context, ref, widget.groupId!, m),
                         tooltip: 'Remove Member',
                       )
+                    else if (isSelf)
+                      IconButton(
+                        icon: const Icon(LucideIcons.logOut, color: AppColors.accentRose, size: 20),
+                        onPressed: () => _showLeaveGroupDialog(context, ref, widget.groupId!, m),
+                        tooltip: 'Leave Group',
+                      )
                     else
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -847,10 +967,10 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
                           color: AppColors.borderSubtle,
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text(
-                          isSelf ? 'You' : 'Active', 
+                        child: const Text(
+                          'Active', 
                           style: TextStyle(
-                            color: isSelf ? AppColors.accentCyan : AppColors.textTertiary, 
+                            color: AppColors.textTertiary, 
                             fontSize: 11, 
                             fontWeight: FontWeight.w600,
                           ),
@@ -944,6 +1064,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
               try {
                 await ref.read(groupServiceProvider).deleteGroup(groupId);
                 ref.invalidate(groupsStreamProvider);
+                ref.invalidate(expensesStreamProvider);
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Group deleted successfully')),
@@ -1024,22 +1145,85 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
     );
   }
 
+  void _showLeaveGroupDialog(BuildContext context, WidgetRef ref, String groupId, Map<String, dynamic> member) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.bgSecondary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(LucideIcons.logOut, color: AppColors.accentRose, size: 22),
+            SizedBox(width: 10),
+            Text('Leave Group', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800, fontSize: 18)),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to leave this group? You will no longer be able to view its expenses or balances.',
+          style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w700)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              try {
+                await ref.read(groupServiceProvider).removeGroupMember(groupId, member['user_id']);
+                ref.invalidate(groupMembersStreamProvider(groupId));
+                ref.invalidate(groupsStreamProvider);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Successfully left the group')),
+                  );
+                  context.go('/groups');
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error leaving group: $e')),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.accentRose,
+              foregroundColor: AppColors.bgPrimary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('Leave', style: TextStyle(fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
+    );
+  }
   Widget _buildAnalyticsTab(List<Map<String, dynamic>> expenses, List<Map<String, dynamic>> members) {
     final Widget child;
     if (expenses.isEmpty) {
-      child = const SingleChildScrollView(
-        physics: BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-        child: SizedBox(
-          height: 350,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(LucideIcons.pieChart, color: AppColors.textTertiary, size: 40),
-              SizedBox(height: 16),
-              Text('Not enough data for analytics', style: TextStyle(color: AppColors.textSecondary, fontSize: 15, fontWeight: FontWeight.w600)),
-              SizedBox(height: 6),
-              Text('Add some bills to generate spending graphs', style: TextStyle(color: AppColors.textTertiary, fontSize: 13)),
-            ],
+      child = LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: constraints.maxHeight,
+              minWidth: constraints.maxWidth,
+            ),
+            child: const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Icon(LucideIcons.pieChart, color: AppColors.textTertiary, size: 40),
+                  SizedBox(height: 16),
+                  Text('Not enough data for analytics', style: TextStyle(color: AppColors.textSecondary, fontSize: 15, fontWeight: FontWeight.w600)),
+                  SizedBox(height: 6),
+                  Text('Add some bills to generate spending graphs', style: TextStyle(color: AppColors.textTertiary, fontSize: 13)),
+                ],
+              ),
+            ),
           ),
         ),
       );
@@ -1229,12 +1413,14 @@ class _IsolatedChatTab extends ConsumerStatefulWidget {
   final List<Map<String, dynamic>> members;
   final String currentUserId;
   final String inviteCode;
+  final RefreshCallback onRefresh;
 
   const _IsolatedChatTab({
     required this.groupId,
     required this.members,
     required this.currentUserId,
     required this.inviteCode,
+    required this.onRefresh,
   });
 
   @override
@@ -1355,25 +1541,34 @@ class _IsolatedChatTabState extends ConsumerState<_IsolatedChatTab> {
           ),
         Expanded(
           child: RefreshIndicator(
-            onRefresh: _handleChatRefresh,
+            onRefresh: widget.onRefresh,
             color: AppColors.accentCyan,
             backgroundColor: AppColors.bgSecondary,
             child: allMessages.isEmpty
-                ? const SingleChildScrollView(
-                    physics: BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-                    child: SizedBox(
-                      height: 350,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(LucideIcons.messageSquare, color: AppColors.textTertiary, size: 40),
-                          SizedBox(height: 16),
-                          Text('Say hello to the group!',
-                              style: TextStyle(color: AppColors.textSecondary, fontSize: 15, fontWeight: FontWeight.w600)),
-                          SizedBox(height: 6),
-                          Text('Messages sync in real time',
-                              style: TextStyle(color: AppColors.textTertiary, fontSize: 12)),
-                        ],
+                ? LayoutBuilder(
+                    builder: (context, constraints) => SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: constraints.maxHeight,
+                          minWidth: constraints.maxWidth,
+                        ),
+                        child: const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Icon(LucideIcons.messageSquare, color: AppColors.textTertiary, size: 40),
+                              SizedBox(height: 16),
+                              Text('Say hello to the group!',
+                                  style: TextStyle(color: AppColors.textSecondary, fontSize: 15, fontWeight: FontWeight.w600)),
+                              SizedBox(height: 6),
+                              Text('Messages sync in real time',
+                                  style: TextStyle(color: AppColors.textTertiary, fontSize: 12)),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   )

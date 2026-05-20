@@ -495,8 +495,8 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
   Widget _buildTransactionCard(Map<String, dynamic> t) {
     final amount = t['amount'] is num ? (t['amount'] as num).toDouble() : double.tryParse(t['amount'].toString()) ?? 0.0;
     
-    // DB column is 'description', not 'title'
-    String rawTitle = t['description']?.toString() ?? '';
+    // DB column is 'description', not 'title'. Strip the internal group-expense prefix.
+    String rawTitle = _cleanDescription(t['description']?.toString() ?? '');
     String rawCategory = t['category']?.toString() ?? 'Expense';
     
     bool hasTitle = rawTitle.isNotEmpty && rawTitle.toLowerCase() != 'unknown';
@@ -577,6 +577,19 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
     return s[0].toUpperCase() + s.substring(1).toLowerCase();
   }
 
+  /// Strips the internal [GroupExpense: <uuid>|GroupName: <name>] prefix added
+  /// when a group expense is replicated into the personal expenses table.
+  String _cleanDescription(String raw) {
+    return raw.replaceFirst(RegExp(r'^\[GroupExpense:[^\]]+\]\s*'), '').trim();
+  }
+
+  /// Extracts the embedded group name from a replicated expense description.
+  /// Returns null if the description is not a group expense.
+  String? _extractGroupName(String raw) {
+    final match = RegExp(r'^\[GroupExpense:[^|]+\|GroupName:\s*([^\]]+)\]').firstMatch(raw);
+    return match?.group(1)?.trim();
+  }
+
   IconData _getCategoryIcon(String category) {
     final cat = category.toLowerCase();
     if (cat.contains('food') || cat.contains('dining') || cat.contains('drink')) return LucideIcons.utensilsCrossed;
@@ -655,8 +668,8 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
   void _showExpenseDetails(Map<String, dynamic> t) {
     final amount = t['amount'] is num ? (t['amount'] as num).toDouble() : double.tryParse(t['amount'].toString()) ?? 0.0;
     
-    // DB column is 'description', not 'title'
-    String rawTitle = t['description']?.toString() ?? '';
+    // DB column is 'description', not 'title'. Strip the internal group-expense prefix.
+    String rawTitle = _cleanDescription(t['description']?.toString() ?? '');
     String rawCategory = t['category']?.toString() ?? 'Expense';
     
     bool hasTitle = rawTitle.isNotEmpty && rawTitle.toLowerCase() != 'unknown';
@@ -986,7 +999,7 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
       for (var e in filtered) {
         final date = e['expense_date']?.toString() ?? e['created_at']?.toString().substring(0, 10) ?? '';
         final cat = e['category'] ?? '';
-        final desc = (e['description'] ?? '').toString().replaceAll(',', ' ');
+        final desc = _cleanDescription((e['description'] ?? '').toString()).replaceAll(',', ' ');
         final amt = e['amount'] ?? '';
         csv += '$date,$cat,"$desc",$amt\n';
       }
