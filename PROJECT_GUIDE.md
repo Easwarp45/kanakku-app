@@ -131,3 +131,22 @@ The application implements optimistic offline caching via `LocalCacheService`:
 *   **Caching**: Data is saved to Hive boxes (`group_expenses_$groupId`, `group_members_$groupId`, `expenses_$_userId`).
 *   **Queueing**: Offline modifications are added to `kanakku_pending_queue_v4.hive` using `queueAction`.
 *   **Reconciliation**: The `RealtimeSyncManager` background engine reconciles pending actions when connection is restored. When writing new database queries or mutations, always make sure to invalidate the corresponding local cache keys so the UI updates immediately.
+
+## 7. Android Emulator Stability & Development Guidelines
+
+To prevent the debugger from disconnecting or the app from crashing during emulator execution (specifically on Windows), the following configurations are required:
+
+### 7.1. Impeller Rendering
+Impeller is disabled for Android builds to avoid OpenGL/GPU instability on common emulator configurations.
+*   **Configuration**: ndroid/app/src/main/AndroidManifest.xml contains:
+    \"xml
+    <meta-data
+        android:name="io.flutter.embedding.android.EnableImpeller"
+        android:value="false" />
+    \"
+
+### 7.2. Recommended Emulator Settings
+If instability persists, apply these settings in the Android Virtual Device (AVD) Manager:
+*   **Graphics**: Set to \"Software - GLES 2.0\" if \"Hardware - GLES 2.0\" causes crashes.
+*   **API Level**: Use stable images (**API 34** or **API 35**). Avoid \"Preview\" or \"Beta\" system images.
+*   **Boot Mode**: Use **Cold Boot** if hot reload or the service protocol fails to connect.

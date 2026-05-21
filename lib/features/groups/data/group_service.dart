@@ -754,7 +754,9 @@ class GroupService {
 
     // Replicate / sync to personal expenses
     if (_userId != null) {
-      final personalDescPattern = '[GroupExpense: $expenseId]';
+      // Match by UUID prefix only — no closing bracket — so both old [GroupExpense: uuid]
+      // and new [GroupExpense: uuid|GroupName: name] formats are found.
+      final personalDescPattern = '[GroupExpense: $expenseId';
       final existingPersonal = await _client
           .from('expenses')
           .select('id')
@@ -808,12 +810,13 @@ class GroupService {
   Future<void> deleteGroupExpense(String groupId, String expenseId) async {
     if (_userId == null) throw Exception('User not authenticated');
 
-    // Delete replicated personal expense
-    final personalDescPattern = '[GroupExpense: $expenseId]';
+    // Delete replicated personal expense.
+    // The token format is: [GroupExpense: <uuid>|GroupName: <name>] title
+    // We match by the UUID prefix only (no closing bracket) so both old and new formats match.
+    final personalDescPattern = '[GroupExpense: $expenseId';
     await _client
         .from('expenses')
         .delete()
-        .eq('user_id', _userId!)
         .like('description', '%$personalDescPattern%');
     await LocalCacheService.invalidate('expenses_$_userId');
 
@@ -880,11 +883,11 @@ class GroupService {
       if (expenses.isNotEmpty) {
         for (final exp in expenses) {
           final expenseId = exp['id'];
-          final personalDescPattern = '[GroupExpense: $expenseId]';
+          // Match by UUID prefix only — no closing bracket — so both old and new formats match.
+          final personalDescPattern = '[GroupExpense: $expenseId';
           await _client
               .from('expenses')
               .delete()
-              .eq('user_id', _userId!)
               .like('description', '%$personalDescPattern%');
         }
         await LocalCacheService.invalidate('expenses_$_userId');

@@ -331,6 +331,8 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
       );
     }
     final membersAsync = ref.watch(groupMembersStreamProvider(widget.groupId!));
+    final currentUserId = ref.read(currentUserProvider)?.id ?? '';
+    final isOwner = widget.expense!['paid_by'] == currentUserId;
 
     return Scaffold(
       appBar: AppBar(
@@ -340,17 +342,18 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
           icon: const Icon(LucideIcons.chevronLeft, color: AppColors.textPrimary),
           onPressed: () => context.pop(),
         ),
-        title: const Text(
-          'Edit Group Expense',
-          style: TextStyle(fontSize: 18, color: AppColors.textPrimary, fontWeight: FontWeight.w700),
+        title: Text(
+          isOwner ? 'Edit Group Expense' : 'View Group Expense',
+          style: const TextStyle(fontSize: 18, color: AppColors.textPrimary, fontWeight: FontWeight.w700),
         ),
         centerTitle: true,
         actions: [
-          IconButton(
-            icon: const Icon(LucideIcons.trash2, color: AppColors.accentRose, size: 20),
-            onPressed: _isSaving ? null : _deleteExpense,
-            tooltip: 'Delete Expense',
-          ),
+          if (isOwner)
+            IconButton(
+              icon: const Icon(LucideIcons.trash2, color: AppColors.accentRose, size: 20),
+              onPressed: _isSaving ? null : _deleteExpense,
+              tooltip: 'Delete Expense',
+            ),
         ],
       ),
       body: SafeArea(
@@ -358,7 +361,6 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
           loading: () => const Center(child: CircularProgressIndicator(color: AppColors.accentCyan)),
           error: (err, _) => Center(child: Text('Error: $err', style: const TextStyle(color: AppColors.accentRose))),
           data: (members) {
-            final currentUserId = ref.read(currentUserProvider)?.id ?? '';
             final payerId = _selectedPayerId ?? currentUserId;
             final payer = members.firstWhere((m) => m['user_id'] == payerId, orElse: () => {});
             final payerName = payerId == currentUserId ? 'You' : (payer['nickname'] ?? payer['display_name'] ?? 'Member');
@@ -385,6 +387,7 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
                               IntrinsicWidth(
                                 child: TextField(
                                   controller: _amountController,
+                                  readOnly: !isOwner,
                                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                   style: const TextStyle(
                                     color: AppColors.textPrimary,
@@ -406,17 +409,24 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
                           ),
                           Divider(color: AppColors.borderSubtle, height: 24),
                           GestureDetector(
-                            onTap: () => _showPayerSelectionSheet(members),
+                            onTap: isOwner ? () => _showPayerSelectionSheet(members) : null,
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 const Text('Paid by ', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w500)),
                                 Text(
                                   payerName,
-                                  style: const TextStyle(color: AppColors.accentCyan, fontSize: 13, fontWeight: FontWeight.w700, decoration: TextDecoration.underline),
+                                  style: TextStyle(
+                                    color: AppColors.accentCyan,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    decoration: isOwner ? TextDecoration.underline : TextDecoration.none,
+                                  ),
                                 ),
-                                const SizedBox(width: 4),
-                                const Icon(LucideIcons.chevronDown, color: AppColors.accentCyan, size: 14),
+                                if (isOwner) ...[
+                                  const SizedBox(width: 4),
+                                  const Icon(LucideIcons.chevronDown, color: AppColors.accentCyan, size: 14),
+                                ],
                               ],
                             ),
                           ),
@@ -441,6 +451,7 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
                             label: 'Description',
                             hint: 'What was this for?',
                             controller: _descController,
+                            enabled: isOwner,
                             prefixIcon: const Icon(LucideIcons.alignLeft, color: AppColors.textTertiary),
                           ),
                           const SizedBox(height: 20),
@@ -461,11 +472,11 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
                                   ],
                                 ),
                                 selected: isSelected,
-                                onSelected: (selected) {
+                                onSelected: isOwner ? (selected) {
                                   if (selected) {
                                     setState(() => _selectedCategory = cat['id'] as String);
                                   }
-                                },
+                                } : null,
                                 selectedColor: AppColors.accentCyan,
                                 backgroundColor: AppColors.bgTertiary,
                                 labelStyle: TextStyle(
@@ -500,11 +511,11 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
                                 child: ChoiceChip(
                                   label: const Center(child: Text('Split Equally')),
                                   selected: _splitType == 'equal',
-                                  onSelected: (selected) {
+                                  onSelected: isOwner ? (selected) {
                                     if (selected) {
                                       setState(() => _splitType = 'equal');
                                     }
-                                  },
+                                  } : null,
                                   selectedColor: AppColors.accentCyan,
                                   backgroundColor: AppColors.bgTertiary,
                                   labelStyle: TextStyle(
@@ -520,12 +531,12 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
                                 child: ChoiceChip(
                                   label: const Center(child: Text('Split Custom')),
                                   selected: _splitType == 'custom',
-                                  onSelected: (selected) {
+                                  onSelected: isOwner ? (selected) {
                                     if (selected) {
                                       setState(() => _splitType = 'custom');
                                       _onAmountChanged();
                                     }
-                                  },
+                                  } : null,
                                   selectedColor: AppColors.accentCyan,
                                   backgroundColor: AppColors.bgTertiary,
                                   labelStyle: TextStyle(
@@ -586,6 +597,7 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
                                           height: 40,
                                           child: TextField(
                                             controller: controller,
+                                            readOnly: !isOwner,
                                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                             textAlign: TextAlign.end,
                                             style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontFamily: 'JetBrainsMono', fontWeight: FontWeight.w700),
@@ -663,11 +675,13 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
 
                   const SizedBox(height: 32),
 
-                  GradientButton(
-                    text: 'Update Expense',
-                    icon: LucideIcons.save,
-                    onPressed: _isSaving ? null : _updateExpense,
-                  ),
+                  if (isOwner) ...[
+                    GradientButton(
+                      text: 'Update Expense',
+                      icon: LucideIcons.save,
+                      onPressed: _isSaving ? null : _updateExpense,
+                    ),
+                  ],
                   const SizedBox(height: 32),
                 ],
               ),

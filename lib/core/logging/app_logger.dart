@@ -1,25 +1,47 @@
-import 'package:logger/logger.dart';
+import 'package:flutter/foundation.dart';
 
+/// Lightweight app logger that uses [debugPrint] (safe on all platforms).
+/// Wraps calls in try/catch to ensure logger never crashes the app.
 class AppLogger {
   static final AppLogger _instance = AppLogger._internal();
-  late final Logger _logger;
 
-  AppLogger._internal() {
-    _logger = Logger(
-      printer: PrettyPrinter(methodCount: 0),
-    );
-  }
+  AppLogger._internal();
 
   factory AppLogger() => _instance;
 
-  void v(dynamic message) => _logger.v(message);
-  void d(dynamic message) => _logger.d(message);
-  void i(dynamic message) => _logger.i(message);
-  void w(dynamic message) => _logger.w(message);
-  void e(dynamic message, [dynamic error, StackTrace? stackTrace]) => _logger.e(message, error, stackTrace);
+  void v(dynamic message) {
+    try {
+      debugPrint('[VERBOSE] $message');
+    } catch (_) {}
+  }
+
+  void d(dynamic message) {
+    try {
+      debugPrint('[DEBUG] $message');
+    } catch (_) {}
+  }
+
+  void i(dynamic message) {
+    try {
+      debugPrint('[INFO] $message');
+    } catch (_) {}
+  }
+
+  void w(dynamic message) {
+    try {
+      debugPrint('[WARN] $message');
+    } catch (_) {}
+  }
+
+  void e(dynamic message, [dynamic error, StackTrace? stackTrace]) {
+    try {
+      debugPrint('[ERROR] $message');
+      if (error != null) debugPrint('  Error: $error');
+      if (stackTrace != null) debugPrint('  Stack: $stackTrace');
+    } catch (_) {}
+  }
 
   void init() {
-    // Placeholder for future remote logger attachments (Sentry/Datadog)
     i('AppLogger initialized');
   }
 }

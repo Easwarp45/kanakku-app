@@ -1,10 +1,15 @@
 import 'package:hive_flutter/hive_flutter.dart';
-import '../../data/models/user_model.dart';
-import '../../data/models/expense_model.dart';
-import '../../data/models/category_model.dart';
-import '../../data/models/transaction_model.dart';
+import 'package:flutter/foundation.dart';
 
-/// Service for managing Hive database operations
+/// Service for managing Hive database operations.
+///
+/// Uses untyped [Box<dynamic>] for all storage because the app's domain
+/// model classes (User, Expense, Category, Transaction) do not have
+/// registered Hive type adapters. Typed boxes require adapters — without
+/// them, Hive throws [HiveError: Cannot write, unknown type] on first use.
+///
+/// All data is stored / retrieved as plain Maps (JSON-compatible),
+/// which is consistent with how [LocalCacheService] works.
 class HiveService {
   static const String userBoxKey = 'users_box';
   static const String expenseBoxKey = 'expenses_box';
@@ -12,45 +17,78 @@ class HiveService {
   static const String transactionBoxKey = 'transactions_box';
   static const String settingsBoxKey = 'settings_box';
 
-  // Boxes
-  static late Box<User> _userBox;
-  static late Box<Expense> _expenseBox;
-  static late Box<Category> _categoryBox;
-  static late Box<Transaction> _transactionBox;
-  static late Box<String> _settingsBox;
+  // Untyped boxes — safe without type adapters
+  static late Box<dynamic> _userBox;
+  static late Box<dynamic> _expenseBox;
+  static late Box<dynamic> _categoryBox;
+  static late Box<dynamic> _transactionBox;
+  static late Box<dynamic> _settingsBox;
 
-  /// Initialize Hive and open all boxes
+  static bool _initialized = false;
+
+  /// Initialize Hive and open all boxes.
   static Future<void> initialize() async {
-    await Hive.initFlutter();
-    
-    // Register adapters
-    _registerAdapters();
-    
-    // Open boxes concurrently to reduce startup time
-    final boxes = await Future.wait([
-      Hive.openBox<User>(userBoxKey),
-      Hive.openBox<Expense>(expenseBoxKey),
-      Hive.openBox<Category>(categoryBoxKey),
-      Hive.openBox<Transaction>(transactionBoxKey),
-      Hive.openBox<String>(settingsBoxKey),
-    ]);
+    if (_initialized) return;
+    try {
+      await Hive.initFlutter();
 
-    _userBox = boxes[0] as Box<User>;
-    _expenseBox = boxes[1] as Box<Expense>;
-    _categoryBox = boxes[2] as Box<Category>;
-    _transactionBox = boxes[3] as Box<Transaction>;
-    _settingsBox = boxes[4] as Box<String>;
+      // Open all boxes concurrently for faster startup.
+      // Use untyped dynamic boxes — no adapters needed.
+      final boxes = await Future.wait([
+        Hive.openBox<dynamic>(userBoxKey),
+        Hive.openBox<dynamic>(expenseBoxKey),
+        Hive.openBox<dynamic>(categoryBoxKey),
+        Hive.openBox<dynamic>(transactionBoxKey),
+        Hive.openBox<dynamic>(settingsBoxKey),
+      ]);
+
+      _userBox = boxes[0];
+      _expenseBox = boxes[1];
+      _categoryBox = boxes[2];
+      _transactionBox = boxes[3];
+      _settingsBox = boxes[4];
+      _initialized = true;
+    } catch (e, stack) {
+      debugPrint('[HiveService] Initialization failed: $e\n$stack');
+      // Try to recover by deleting corrupt boxes and re-initializing
+      try {
+        await Hive.deleteBoxFromDisk(userBoxKey);
+        await Hive.deleteBoxFromDisk(expenseBoxKey);
+        await Hive.deleteBoxFromDisk(categoryBoxKey);
+        await Hive.deleteBoxFromDisk(transactionBoxKey);
+        await Hive.deleteBoxFromDisk(settingsBoxKey);
+
+        final boxes = await Future.wait([
+          Hive.openBox<dynamic>(userBoxKey),
+          Hive.openBox<dynamic>(expenseBoxKey),
+          Hive.openBox<dynamic>(categoryBoxKey),
+          Hive.openBox<dynamic>(transactionBoxKey),
+          Hive.openBox<dynamic>(settingsBoxKey),
+        ]);
+        _userBox = boxes[0];
+        _expenseBox = boxes[1];
+        _categoryBox = boxes[2];
+        _transactionBox = boxes[3];
+        _settingsBox = boxes[4];
+        _initialized = true;
+        debugPrint('[HiveService] Recovered after deleting corrupt boxes');
+      } catch (e2) {
+        debugPrint('[HiveService] Recovery also failed: $e2');
+        rethrow;
+      }
+    }
   }
 
-  /// Register Hive adapters for models
-  static void _registerAdapters() {
-    if (!Hive.isAdapterRegistered(1)) {
-      Hive.registerAdapter(TransactionTypeAdapter());
+  static void _assertInitialized() {
+    if (!_initialized) {
+      throw StateError(
+          '[HiveService] Not initialized. Call HiveService.initialize() first.');
     }
   }
 
   /// Clear all data (use with caution)
   static Future<void> clearAll() async {
+    _assertInitialized();
     await Future.wait([
       _userBox.clear(),
       _expenseBox.clear(),
@@ -60,184 +98,58 @@ class HiveService {
     ]);
   }
 
-  // User operations
-  static Future<void> saveUser(User user) async {
-    await _userBox.put('current_user', user);
-  }
+  // ── Settings operations ──────────────────────────────────────────────────
 
-  static User? getUser() {
-    return _userBox.get('current_user');
-  }
-
-  static Future<void> deleteUser() async {
-    await _userBox.delete('current_user');
-  }
-
-  // Expense operations
-  static Future<void> saveExpense(Expense expense) async {
-    await _expenseBox.put(expense.id, expense);
-  }
-
-  static Future<void> saveExpenses(List<Expense> expenses) async {
-    final map = {for (var expense in expenses) expense.id: expense};
-    await _expenseBox.putAll(map);
-  }
-
-  static Expense? getExpense(String id) {
-    return _expenseBox.get(id);
-  }
-
-  static List<Expense> getAllExpenses() {
-    return _expenseBox.values.toList();
-  }
-
-  static List<Expense> getExpensesByCategory(String category) {
-    return _expenseBox.values
-        .where((expense) => expense.category == category)
-        .toList();
-  }
-
-  static List<Expense> getExpensesByDateRange(DateTime start, DateTime end) {
-    return _expenseBox.values
-        .where((expense) =>
-            expense.date.isAfter(start) && expense.date.isBefore(end))
-        .toList();
-  }
-
-  static Future<void> deleteExpense(String id) async {
-    await _expenseBox.delete(id);
-  }
-
-  static int getExpenseCount() {
-    return _expenseBox.length;
-  }
-
-  // Category operations
-  static Future<void> saveCategory(Category category) async {
-    await _categoryBox.put(category.id, category);
-  }
-
-  static Future<void> saveCategories(List<Category> categories) async {
-    final map = {for (var category in categories) category.id: category};
-    await _categoryBox.putAll(map);
-  }
-
-  static Category? getCategory(String id) {
-    return _categoryBox.get(id);
-  }
-
-  static List<Category> getAllCategories() {
-    return _categoryBox.values.toList();
-  }
-
-  static Future<void> deleteCategory(String id) async {
-    await _categoryBox.delete(id);
-  }
-
-  // Transaction operations
-  static Future<void> saveTransaction(Transaction transaction) async {
-    await _transactionBox.put(transaction.id, transaction);
-  }
-
-  static Future<void> saveTransactions(List<Transaction> transactions) async {
-    final map = {for (var transaction in transactions) transaction.id: transaction};
-    await _transactionBox.putAll(map);
-  }
-
-  static Transaction? getTransaction(String id) {
-    return _transactionBox.get(id);
-  }
-
-  static List<Transaction> getAllTransactions() {
-    return _transactionBox.values.toList();
-  }
-
-  static List<Transaction> getTransactionsByType(TransactionType type) {
-    return _transactionBox.values
-        .where((transaction) => transaction.type == type)
-        .toList();
-  }
-
-  static List<Transaction> getTransactionsByDateRange(
-    DateTime start,
-    DateTime end,
-  ) {
-    return _transactionBox.values
-        .where((transaction) =>
-            transaction.date.isAfter(start) &&
-            transaction.date.isBefore(end))
-        .toList();
-  }
-
-  static Future<void> deleteTransaction(String id) async {
-    await _transactionBox.delete(id);
-  }
-
-  static int getTransactionCount() {
-    return _transactionBox.length;
-  }
-
-  // Settings operations
   static Future<void> setSetting(String key, String value) async {
+    _assertInitialized();
     await _settingsBox.put(key, value);
   }
 
   static String? getSetting(String key) {
-    return _settingsBox.get(key);
+    if (!_initialized) return null;
+    final val = _settingsBox.get(key);
+    return val as String?;
   }
 
   static Future<void> deleteSetting(String key) async {
+    _assertInitialized();
     await _settingsBox.delete(key);
   }
 
-  // Helper methods
-  static double getTotalExpenses() {
-    return _expenseBox.values.fold(0.0, (sum, expense) => sum + expense.amount);
+  // ── User operations ──────────────────────────────────────────────────────
+
+  static Future<void> saveUserMap(Map<String, dynamic> user) async {
+    _assertInitialized();
+    await _userBox.put('current_user', user);
   }
 
-  static double getTotalIncome() {
-    return _transactionBox.values
-        .where((t) => t.type == TransactionType.income)
-        .fold(0.0, (sum, transaction) => sum + transaction.amount);
-  }
-
-  static double getTotalExpensesFromTransactions() {
-    return _transactionBox.values
-        .where((t) => t.type == TransactionType.expense)
-        .fold(0.0, (sum, transaction) => sum + transaction.amount);
-  }
-
-  static double getBalance() {
-    return getTotalIncome() - getTotalExpensesFromTransactions();
-  }
-}
-
-/// Adapter for TransactionType enum
-class TransactionTypeAdapter extends TypeAdapter<TransactionType> {
-  @override
-  final int typeId = 1;
-
-  @override
-  TransactionType read(BinaryReader reader) {
-    switch (reader.readByte()) {
-      case 0:
-        return TransactionType.income;
-      case 1:
-        return TransactionType.expense;
-      default:
-        return TransactionType.expense;
+  static Map<String, dynamic>? getUserMap() {
+    if (!_initialized) return null;
+    final val = _userBox.get('current_user');
+    if (val == null) return null;
+    try {
+      return Map<String, dynamic>.from(val as Map);
+    } catch (_) {
+      return null;
     }
   }
 
-  @override
-  void write(BinaryWriter writer, TransactionType obj) {
-    switch (obj) {
-      case TransactionType.income:
-        writer.writeByte(0);
-        break;
-      case TransactionType.expense:
-        writer.writeByte(1);
-        break;
-    }
+  static Future<void> deleteUser() async {
+    _assertInitialized();
+    await _userBox.delete('current_user');
+  }
+
+  // ── Expense count ────────────────────────────────────────────────────────
+
+  static int getExpenseCount() {
+    if (!_initialized) return 0;
+    return _expenseBox.length;
+  }
+
+  // ── Transaction count ────────────────────────────────────────────────────
+
+  static int getTransactionCount() {
+    if (!_initialized) return 0;
+    return _transactionBox.length;
   }
 }

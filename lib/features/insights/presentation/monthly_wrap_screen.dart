@@ -1,20 +1,77 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:intl/intl.dart';
 import '../../../shared/widgets/glass_card.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/providers/auth_provider.dart';
+import '../../../core/database/local_cache_service.dart';
+import '../../expenses/data/expense_service.dart';
+import '../../income/data/income_service.dart';
 
-class MonthlyWrapScreen extends StatelessWidget {
+class MonthlyWrapScreen extends ConsumerWidget {
   const MonthlyWrapScreen({super.key});
 
+  double _parseAmount(dynamic amount) {
+    if (amount is num) return amount.toDouble();
+    return double.tryParse(amount?.toString() ?? '0') ?? 0.0;
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final expensesAsync = ref.watch(expensesStreamProvider);
+    final incomeAsync = ref.watch(incomeStreamProvider);
+
+    if (expensesAsync.isLoading || incomeAsync.isLoading) {
+      return const Scaffold(
+        backgroundColor: AppColors.bgPrimary,
+        body: Center(
+          child: CircularProgressIndicator(color: AppColors.accentCyan),
+        ),
+      );
+    }
+
+    final expenses = expensesAsync.value ?? [];
+    final incomes = incomeAsync.value ?? [];
+    final now = DateTime.now();
+    final monthName = DateFormat('MMMM').format(now);
+
+    final monthlyIncomes = incomes.where((e) {
+      final d = DateTime.tryParse(e['income_date']?.toString() ?? e['created_at']?.toString() ?? '');
+      return d != null && d.year == now.year && d.month == now.month;
+    });
+    final monthlyIncome = monthlyIncomes.fold<double>(0, (sum, e) => sum + _parseAmount(e['amount']));
+
+    final monthlyExpensesList = expenses.where((e) {
+      final d = DateTime.tryParse(e['expense_date']?.toString() ?? e['created_at']?.toString() ?? '');
+      return d != null && d.year == now.year && d.month == now.month;
+    });
+    final monthlyExpense = monthlyExpensesList.fold<double>(0, (sum, e) => sum + _parseAmount(e['amount']));
+
+    final double savingsRate = monthlyIncome > 0 ? ((monthlyIncome - monthlyExpense) / monthlyIncome) : 0.0;
+    final double netWorthSurge = savingsRate * 100;
+
+    final totalIncome = incomes.fold<double>(0, (sum, e) => sum + _parseAmount(e['amount']));
+    final totalExpense = expenses.fold<double>(0, (sum, e) => sum + _parseAmount(e['amount']));
+    final reserves = totalIncome - totalExpense;
+
+    final user = ref.watch(currentUserProvider);
+    List<Map<String, dynamic>> goals = [];
+    if (user != null) {
+      goals = LocalCacheService.getCachedList('local_goals_${user.id}');
+    }
+    final completedGoal = goals.firstWhere(
+      (g) => _parseAmount(g['currentAmount']) >= _parseAmount(g['targetAmount']),
+      orElse: () => <String, dynamic>{},
+    );
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent, elevation: 0,
         leading: IconButton(icon: const Icon(LucideIcons.chevronLeft, color: AppColors.textPrimary), onPressed: () => context.pop()),
-        title: const Text('Monthly Wrap', style: TextStyle(fontSize: 18, color: AppColors.textPrimary, fontWeight: FontWeight.w700)),
+        title: Text('$monthName Wrap', style: const TextStyle(fontSize: 18, color: AppColors.textPrimary, fontWeight: FontWeight.w700)),
         centerTitle: true,
       ),
       body: SafeArea(
@@ -23,13 +80,13 @@ class MonthlyWrapScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildHeroMessage(),
+              _buildHeroMessage(savingsRate, netWorthSurge, monthName),
               const SizedBox(height: 24),
-              _buildGoalAchievement(),
+              _buildGoalAchievement(completedGoal, goals),
               const SizedBox(height: 24),
-              _buildSecuredAssets(),
+              _buildSecuredAssets(reserves, savingsRate),
               const SizedBox(height: 24),
-              _buildNextMonthStrategy(),
+              _buildNextMonthStrategy(reserves),
               const SizedBox(height: 32),
             ],
           ),
@@ -38,27 +95,33 @@ class MonthlyWrapScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildHeroMessage() {
+  Widget _buildHeroMessage(double savingsRate, double netWorthSurge, String monthName) {
+    final statusText = savingsRate >= 0.20
+        ? 'A stellar performance, Executive.'
+        : 'A cautious performance, Executive.';
+
+    final sign = netWorthSurge >= 0 ? '+' : '';
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         gradient: const LinearGradient(colors: [Color(0xFF0e3a4a), AppColors.accentCyan], begin: Alignment.topLeft, end: Alignment.bottomRight),
-        boxShadow: [BoxShadow(color: AppColors.accentCyan.withValues(alpha: 0.25), blurRadius: 24, offset: const Offset(0, 8))],
+        boxShadow: [BoxShadow(color: AppColors.accentCyan.withOpacity(0.25), blurRadius: 24, offset: const Offset(0, 8))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Icon(LucideIcons.trendingUp, color: AppColors.accentCyan, size: 28),
           const SizedBox(height: 16),
-          const Text('A stellar performance, Executive.', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800, height: 1.3)),
+          Text(statusText, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800, height: 1.3)),
           const SizedBox(height: 8),
           const Text('Your net worth surged by', style: TextStyle(color: Colors.white70, fontSize: 14)),
           const SizedBox(height: 4),
-          Text('+12.4%', style: AppTheme.moneyStyle.copyWith(fontSize: 36, color: AppColors.accentEmerald)),
+          Text('$sign${netWorthSurge.toStringAsFixed(1)}%', style: AppTheme.moneyStyle.copyWith(fontSize: 36, color: AppColors.accentEmerald)),
           const SizedBox(height: 4),
-          const Text('this month', style: TextStyle(color: Colors.white54, fontSize: 14)),
+          Text('this $monthName', style: const TextStyle(color: Colors.white54, fontSize: 14)),
           const SizedBox(height: 16),
           const Text(
             'You effectively managed liquidity while accelerating long-term positions. Here is how your capital moved through the ecosystem.',
@@ -69,10 +132,23 @@ class MonthlyWrapScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildGoalAchievement() {
+  Widget _buildGoalAchievement(Map<String, dynamic> completedGoal, List<Map<String, dynamic>> goals) {
+    final hasCompleted = completedGoal.isNotEmpty;
+    final title = hasCompleted ? 'Goal Achieved!' : 'Goal Status';
+    final name = hasCompleted ? completedGoal['name']?.toString() ?? 'Untitled Goal' : '';
+
+    String body = 'You reached your "$name" goal early this month. Excellent discipline!';
+    if (!hasCompleted) {
+      if (goals.isEmpty) {
+        body = 'No financial goals set. Head over to the Goal Trajectory module under intelligence to outline major purchase targets.';
+      } else {
+        body = 'You are currently tracking ${goals.length} active financial goals. Maintain consistent deposits to hit targets.';
+      }
+    }
+
     return GlassCard(
       margin: EdgeInsets.zero,
-      borderColor: AppColors.accentEmerald.withValues(alpha: 0.4),
+      borderColor: hasCompleted ? AppColors.accentEmerald.withOpacity(0.4) : AppColors.borderSubtle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -80,34 +156,46 @@ class MonthlyWrapScreen extends StatelessWidget {
             children: [
               Container(
                 padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: AppColors.accentEmerald.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
-                child: const Icon(LucideIcons.trophy, color: AppColors.accentEmerald, size: 22),
+                decoration: BoxDecoration(
+                  color: (hasCompleted ? AppColors.accentEmerald : AppColors.accentCyan).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(hasCompleted ? LucideIcons.trophy : LucideIcons.target, color: hasCompleted ? AppColors.accentEmerald : AppColors.accentCyan, size: 22),
               ),
               const SizedBox(width: 12),
-              const Text('Global Acquisitions', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
+              Text(title, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
             ],
           ),
           const SizedBox(height: 16),
-          const Text('You reached your "Q4 Resilience" goal 14 days early.', style: TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.5)),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: AppColors.accentEmerald.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(LucideIcons.checkCircle, color: AppColors.accentEmerald, size: 20),
-                const SizedBox(width: 8),
-                const Text('Q4 Resilience Goal — ACHIEVED', style: TextStyle(color: AppColors.accentEmerald, fontWeight: FontWeight.w700)),
-              ],
+          Text(body, style: const TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.5)),
+          if (hasCompleted) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: AppColors.accentEmerald.withOpacity(0.08), borderRadius: BorderRadius.circular(10)),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(LucideIcons.checkCircle, color: AppColors.accentEmerald, size: 20),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      '$name — ACHIEVED',
+                      style: const TextStyle(color: AppColors.accentEmerald, fontWeight: FontWeight.w700),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
+          ]
         ],
       ),
     );
   }
 
-  Widget _buildSecuredAssets() {
+  Widget _buildSecuredAssets(double reserves, double savingsRate) {
     return GlassCard(
       margin: EdgeInsets.zero,
       child: Column(
@@ -117,7 +205,7 @@ class MonthlyWrapScreen extends StatelessWidget {
             children: [
               Container(
                 padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: AppColors.accentCyan.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
+                decoration: BoxDecoration(color: AppColors.accentCyan.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
                 child: const Icon(LucideIcons.database, color: AppColors.accentCyan, size: 22),
               ),
               const SizedBox(width: 12),
@@ -125,21 +213,23 @@ class MonthlyWrapScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          const Text(
-            'Your emergency and strategic liquidity reserves are currently yielding 4.2% APY across primary glass accounts.',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.5),
+          Text(
+            'Your emergency and strategic liquidity reserves total ₹${reserves.toStringAsFixed(0)}. They are currently earning interest across primary accounts.',
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.5),
           ),
           const SizedBox(height: 16),
-          Text('4.2% APY', style: AppTheme.moneyStyle.copyWith(fontSize: 24, color: AppColors.accentCyan)),
+          Text('Reserves: ₹${reserves.toStringAsFixed(0)}', style: AppTheme.moneyStyle.copyWith(fontSize: 24, color: AppColors.accentCyan)),
         ],
       ),
     );
   }
 
-  Widget _buildNextMonthStrategy() {
+  Widget _buildNextMonthStrategy(double reserves) {
+    final double vaultAllocation = (reserves * 0.25).clamp(1000.0, 50000.0);
+
     return GlassCard(
       margin: EdgeInsets.zero,
-      borderColor: AppColors.accentPurple.withValues(alpha: 0.3),
+      borderColor: AppColors.accentPurple.withOpacity(0.3),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -147,7 +237,7 @@ class MonthlyWrapScreen extends StatelessWidget {
             children: [
               Container(
                 padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: AppColors.accentPurple.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
+                decoration: BoxDecoration(color: AppColors.accentPurple.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
                 child: const Icon(LucideIcons.lightbulb, color: AppColors.accentPurple, size: 22),
               ),
               const SizedBox(width: 12),
@@ -155,16 +245,23 @@ class MonthlyWrapScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          const Text(
-            'Based on current burn rates and dividend forecasts, we recommend reallocating ₹15,000 into the \'Vault\' to optimize tax efficiency before the year-end close.',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.5),
+          Text(
+            'Based on current burn rates and dividend forecasts, we recommend allocating ₹${vaultAllocation.toStringAsFixed(0)} into long-term investments to maximize capital efficiency.',
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.5),
           ),
           const SizedBox(height: 16),
           Row(
             children: [
               const Icon(LucideIcons.arrowRight, color: AppColors.accentPurple, size: 16),
               const SizedBox(width: 8),
-              Text('₹15,000 to Vault', style: AppTheme.moneyStyle.copyWith(fontSize: 18, color: AppColors.accentPurple)),
+              Expanded(
+                child: Text(
+                  '₹${vaultAllocation.toStringAsFixed(0)} to Investment Vault',
+                  style: AppTheme.moneyStyle.copyWith(fontSize: 18, color: AppColors.accentPurple),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ),
             ],
           ),
         ],

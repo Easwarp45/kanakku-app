@@ -641,7 +641,6 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
                     duration: Duration(seconds: 1),
                   ),
                 );
-                return;
               }
               context.push('/edit-group-expense', extra: {
                 'groupId': widget.groupId,

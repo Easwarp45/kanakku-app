@@ -8,7 +8,9 @@ final supabaseClientProvider = Provider<SupabaseClient>((ref) {
 
 final realtimeSyncManagerProvider = Provider<RealtimeSyncManager>((ref) {
   final client = ref.watch(supabaseClientProvider);
-  return RealtimeSyncManager(client);
+  final manager = RealtimeSyncManager(client);
+  ref.onDispose(manager.dispose);
+  return manager;
 });
 
 final supabaseServiceProvider = Provider<SupabaseService>((ref) {
