@@ -10,6 +10,8 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/database/local_cache_service.dart';
 import '../../expenses/data/expense_service.dart';
 import '../../income/data/income_service.dart';
+import '../../../core/providers/preferences_provider.dart';
+import '../../../core/utils/multi_currency_helper.dart';
 
 class MonthlyWrapScreen extends ConsumerWidget {
   const MonthlyWrapScreen({super.key});
@@ -23,6 +25,9 @@ class MonthlyWrapScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final expensesAsync = ref.watch(expensesStreamProvider);
     final incomeAsync = ref.watch(incomeStreamProvider);
+    final prefState = ref.watch(preferencesProvider);
+    final prefCurrency = supportedCurrencies[prefState.currencyIndex];
+    final notifier = ref.read(preferencesProvider.notifier);
 
     if (expensesAsync.isLoading || incomeAsync.isLoading) {
       return const Scaffold(
@@ -84,9 +89,9 @@ class MonthlyWrapScreen extends ConsumerWidget {
               const SizedBox(height: 24),
               _buildGoalAchievement(completedGoal, goals),
               const SizedBox(height: 24),
-              _buildSecuredAssets(reserves, savingsRate),
+              _buildSecuredAssets(reserves, savingsRate, prefCurrency, notifier),
               const SizedBox(height: 24),
-              _buildNextMonthStrategy(reserves),
+              _buildNextMonthStrategy(reserves, prefCurrency, notifier),
               const SizedBox(height: 32),
             ],
           ),
@@ -195,7 +200,8 @@ class MonthlyWrapScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildSecuredAssets(double reserves, double savingsRate) {
+  Widget _buildSecuredAssets(double reserves, double savingsRate, CurrencyInfo prefCurrency, PreferencesNotifier notifier) {
+    final reservesPref = notifier.convertFromBaseline(reserves);
     return GlassCard(
       margin: EdgeInsets.zero,
       child: Column(
@@ -214,18 +220,19 @@ class MonthlyWrapScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'Your emergency and strategic liquidity reserves total ₹${reserves.toStringAsFixed(0)}. They are currently earning interest across primary accounts.',
+            'Your emergency and strategic liquidity reserves total ${CurrencyFormatter.format(reservesPref, prefCurrency.code)}. They are currently earning interest across primary accounts.',
             style: const TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.5),
           ),
           const SizedBox(height: 16),
-          Text('Reserves: ₹${reserves.toStringAsFixed(0)}', style: AppTheme.moneyStyle.copyWith(fontSize: 24, color: AppColors.accentCyan)),
+          Text('Reserves: ${CurrencyFormatter.format(reservesPref, prefCurrency.code)}', style: AppTheme.moneyStyle.copyWith(fontSize: 24, color: AppColors.accentCyan)),
         ],
       ),
     );
   }
 
-  Widget _buildNextMonthStrategy(double reserves) {
+  Widget _buildNextMonthStrategy(double reserves, CurrencyInfo prefCurrency, PreferencesNotifier notifier) {
     final double vaultAllocation = (reserves * 0.25).clamp(1000.0, 50000.0);
+    final vaultAllocationPref = notifier.convertFromBaseline(vaultAllocation);
 
     return GlassCard(
       margin: EdgeInsets.zero,
@@ -246,7 +253,7 @@ class MonthlyWrapScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'Based on current burn rates and dividend forecasts, we recommend allocating ₹${vaultAllocation.toStringAsFixed(0)} into long-term investments to maximize capital efficiency.',
+            'Based on current burn rates and dividend forecasts, we recommend allocating ${CurrencyFormatter.format(vaultAllocationPref, prefCurrency.code)} into long-term investments to maximize capital efficiency.',
             style: const TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.5),
           ),
           const SizedBox(height: 16),
@@ -256,7 +263,7 @@ class MonthlyWrapScreen extends ConsumerWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  '₹${vaultAllocation.toStringAsFixed(0)} to Investment Vault',
+                  '${CurrencyFormatter.format(vaultAllocationPref, prefCurrency.code)} to Investment Vault',
                   style: AppTheme.moneyStyle.copyWith(fontSize: 18, color: AppColors.accentPurple),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,

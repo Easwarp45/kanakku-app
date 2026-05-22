@@ -10,6 +10,7 @@ import '../../expenses/data/expense_service.dart';
 import '../../income/data/income_service.dart' as inc;
 import '../../../core/providers/auth_provider.dart';
 import '../../groups/data/group_service.dart';
+import '../../../core/providers/preferences_provider.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -18,6 +19,14 @@ class DashboardScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final expensesAsync = ref.watch(expensesStreamProvider);
     final incomeAsync = ref.watch(inc.incomeStreamProvider);
+    final prefs = ref.watch(preferencesProvider);
+    final currencySymbol = prefs.currencyIndex == 1
+        ? '\$'
+        : prefs.currencyIndex == 2
+            ? '€'
+            : prefs.currencyIndex == 3
+                ? '£'
+                : '₹';
     
     Future<void> handleRefresh() async {
       ref.invalidate(expensesStreamProvider);
@@ -41,16 +50,16 @@ class DashboardScreen extends ConsumerWidget {
             slivers: [
               SliverToBoxAdapter(child: _buildHeader(context, ref)),
               const SliverToBoxAdapter(child: SizedBox(height: 24)),
-              SliverToBoxAdapter(child: _buildBalanceCard(ref)),
+              SliverToBoxAdapter(child: _buildBalanceCard(ref, currencySymbol)),
               const SliverToBoxAdapter(child: SizedBox(height: 20)),
-              SliverToBoxAdapter(child: _buildIncomeExpenseRow(ref)),
+              SliverToBoxAdapter(child: _buildIncomeExpenseRow(ref, currencySymbol)),
               const SliverToBoxAdapter(child: SizedBox(height: 28)),
               SliverToBoxAdapter(child: _buildQuickActions(context)),
               const SliverToBoxAdapter(child: SizedBox(height: 28)),
               SliverToBoxAdapter(child: _buildSmartInsightCard(context)),
               const SliverToBoxAdapter(child: SizedBox(height: 28)),
               SliverToBoxAdapter(
-                child: _buildCombinedRecentTransactions(context, ref, expensesAsync, incomeAsync),
+                child: _buildCombinedRecentTransactions(context, ref, expensesAsync, incomeAsync, currencySymbol),
               ),
               const SliverToBoxAdapter(child: SizedBox(height: 32)),
             ],
@@ -106,7 +115,18 @@ class DashboardScreen extends ConsumerWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(greeting, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.textTertiary, letterSpacing: 2)),
+              Row(
+                children: [
+                  Image.asset(
+                    'assets/icons/kanakku_logo.png',
+                    width: 22,
+                    height: 22,
+                    fit: BoxFit.contain,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(greeting, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.textTertiary, letterSpacing: 2)),
+                ],
+              ),
               const SizedBox(height: 2),
               Text(name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
             ],
@@ -220,6 +240,14 @@ class DashboardScreen extends ConsumerWidget {
                 child: Consumer(
                   builder: (context, ref, child) {
                     final settlementsAsync = ref.watch(recentSettlementsProvider);
+                    final prefs = ref.watch(preferencesProvider);
+                    final currencySymbol = prefs.currencyIndex == 1
+                        ? '\$'
+                        : prefs.currencyIndex == 2
+                            ? '€'
+                            : prefs.currencyIndex == 3
+                                ? '£'
+                                : '₹';
 
                     return settlementsAsync.when(
                       data: (settlements) {
@@ -345,7 +373,7 @@ class DashboardScreen extends ConsumerWidget {
                                                       ),
                                                       const TextSpan(text: ' settled '),
                                                       TextSpan(
-                                                        text: '₹${amount.toStringAsFixed(0)}',
+                                                        text: '$currencySymbol${amount.toStringAsFixed(0)}',
                                                         style: const TextStyle(
                                                           color: AppColors.accentEmerald,
                                                           fontWeight: FontWeight.w800,
@@ -439,7 +467,7 @@ class DashboardScreen extends ConsumerWidget {
 
 
   // Total Balance Card
-  Widget _buildBalanceCard(WidgetRef ref) {
+  Widget _buildBalanceCard(WidgetRef ref, String currencySymbol) {
     final totalIncome = ref.watch(inc.monthlyIncomeProvider);
     final expenses = ref.watch(monthlyExpensesProvider);
     final balance = totalIncome - expenses;
@@ -469,7 +497,7 @@ class DashboardScreen extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 12),
-            Text('₹${balance.toStringAsFixed(2)}', style: AppTheme.moneyStyle.copyWith(fontSize: 40, color: AppColors.bgPrimary)),
+            Text('$currencySymbol${balance.toStringAsFixed(2)}', style: AppTheme.moneyStyle.copyWith(fontSize: 40, color: AppColors.bgPrimary)),
             const SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -499,7 +527,7 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   // Expense Summary
-  Widget _buildIncomeExpenseRow(WidgetRef ref) {
+  Widget _buildIncomeExpenseRow(WidgetRef ref, String currencySymbol) {
     final totalIncome = ref.watch(inc.monthlyIncomeProvider);
     final expenses = ref.watch(monthlyExpensesProvider);
 
@@ -507,9 +535,9 @@ class DashboardScreen extends ConsumerWidget {
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
         children: [
-          Expanded(child: _buildMiniStatCard('Income', '+₹${totalIncome.toStringAsFixed(2)}', LucideIcons.arrowDownLeft, AppColors.accentEmerald)),
+          Expanded(child: _buildMiniStatCard('Income', '+$currencySymbol${totalIncome.toStringAsFixed(2)}', LucideIcons.arrowDownLeft, AppColors.accentEmerald)),
           const SizedBox(width: 12),
-          Expanded(child: _buildMiniStatCard('Expenses', '-₹${expenses.toStringAsFixed(2)}', LucideIcons.arrowUpRight, AppColors.accentRose)),
+          Expanded(child: _buildMiniStatCard('Expenses', '-$currencySymbol${expenses.toStringAsFixed(2)}', LucideIcons.arrowUpRight, AppColors.accentRose)),
         ],
       ),
     );
@@ -631,6 +659,7 @@ class DashboardScreen extends ConsumerWidget {
     WidgetRef ref, 
     AsyncValue<List<Map<String, dynamic>>> expensesAsync,
     AsyncValue<List<Map<String, dynamic>>> incomeAsync,
+    String currencySymbol,
   ) {
     return expensesAsync.when(
       data: (expenses) {
@@ -689,7 +718,7 @@ class DashboardScreen extends ConsumerWidget {
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: filtered.length,
                       separatorBuilder: (_, __) => Divider(color: AppColors.borderSubtle, height: 1),
-                      itemBuilder: (context, i) => _buildTransactionItem(filtered[i]),
+                      itemBuilder: (context, i) => _buildTransactionItem(filtered[i], currencySymbol),
                     ),
                   ),
                 ],
@@ -708,7 +737,7 @@ class DashboardScreen extends ConsumerWidget {
   // Remove the old _buildRecentTransactions method if it's no longer needed
   // (I'll keep it for now but it's superseded by _buildCombinedRecentTransactions)
 
-  static Widget _buildTransactionItem(Map<String, dynamic> t) {
+  static Widget _buildTransactionItem(Map<String, dynamic> t, String currencySymbol) {
     final isIncome = t['is_income'] == true;
     final amount = t['amount'] is num ? (t['amount'] as num).toDouble() : double.tryParse(t['amount'].toString()) ?? 0.0;
 
@@ -744,7 +773,7 @@ class DashboardScreen extends ConsumerWidget {
       ),
       subtitle: Text(subText, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
       trailing: Text(
-        '${isIncome ? '+' : '-'}₹${amount.toStringAsFixed(2)}',
+        '${isIncome ? '+' : '-'}$currencySymbol${amount.toStringAsFixed(2)}',
         style: AppTheme.moneyStyle.copyWith(
           color: isIncome ? AppColors.accentEmerald : AppColors.textPrimary,
           fontSize: 15,

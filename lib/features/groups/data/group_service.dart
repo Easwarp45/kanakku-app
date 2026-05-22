@@ -584,7 +584,7 @@ class GroupService {
   }) async {
     if (_userId == null) throw Exception('User not authenticated');
 
-    final actualPaidBy = paidBy ?? _userId!;
+    final actualPaidBy = paidBy ?? _userId;
     final tempId = 'temp_${_uuid.v4()}';
     final actualSplitType = (splitType == 'unequal') ? 'custom' : splitType;
     final tempData = {
@@ -753,53 +753,51 @@ class GroupService {
     }
 
     // Replicate / sync to personal expenses
-    if (_userId != null) {
-      // Match by UUID prefix only — no closing bracket — so both old [GroupExpense: uuid]
-      // and new [GroupExpense: uuid|GroupName: name] formats are found.
-      final personalDescPattern = '[GroupExpense: $expenseId';
-      final existingPersonal = await _client
-          .from('expenses')
-          .select('id')
-          .eq('user_id', _userId!)
-          .like('description', '%$personalDescPattern%')
-          .maybeSingle();
+    // Match by UUID prefix only — no closing bracket — so both old [GroupExpense: uuid]
+    // and new [GroupExpense: uuid|GroupName: name] formats are found.
+    final personalDescPattern = '[GroupExpense: $expenseId';
+    final existingPersonal = await _client
+        .from('expenses')
+        .select('id')
+        .eq('user_id', _userId)
+        .like('description', '%$personalDescPattern%')
+        .maybeSingle();
 
-      if (paidBy == _userId) {
-        // Fetch the group name to embed in the token for display purposes
-        String groupName = groupId;
-        try {
-          final groupRow = await _client
-              .from('groups')
-              .select('name')
-              .eq('id', groupId)
-              .maybeSingle();
-          if (groupRow != null && groupRow['name'] != null) {
-            groupName = groupRow['name'].toString();
-          }
-        } catch (_) {}
-        final personalDesc = '[GroupExpense: $expenseId|GroupName: $groupName] $description';
-        if (existingPersonal != null) {
-          await _client.from('expenses').update({
-            'amount': amount,
-            'description': personalDesc,
-            'category': category,
-          }).eq('id', existingPersonal['id']);
-        } else {
-          await _client.from('expenses').insert({
-            'user_id': _userId,
-            'amount': amount,
-            'description': personalDesc,
-            'category': category,
-            'expense_date': DateTime.now().toIso8601String().split('T')[0],
-            'payment_method': 'upi',
-          });
+    if (paidBy == _userId) {
+      // Fetch the group name to embed in the token for display purposes
+      String groupName = groupId;
+      try {
+        final groupRow = await _client
+            .from('groups')
+            .select('name')
+            .eq('id', groupId)
+            .maybeSingle();
+        if (groupRow != null && groupRow['name'] != null) {
+          groupName = groupRow['name'].toString();
         }
-        await LocalCacheService.invalidate('expenses_$_userId');
+      } catch (_) {}
+      final personalDesc = '[GroupExpense: $expenseId|GroupName: $groupName] $description';
+      if (existingPersonal != null) {
+        await _client.from('expenses').update({
+          'amount': amount,
+          'description': personalDesc,
+          'category': category,
+        }).eq('id', existingPersonal['id']);
       } else {
-        if (existingPersonal != null) {
-          await _client.from('expenses').delete().eq('id', existingPersonal['id']);
-          await LocalCacheService.invalidate('expenses_$_userId');
-        }
+        await _client.from('expenses').insert({
+          'user_id': _userId,
+          'amount': amount,
+          'description': personalDesc,
+          'category': category,
+          'expense_date': DateTime.now().toIso8601String().split('T')[0],
+          'payment_method': 'upi',
+        });
+      }
+      await LocalCacheService.invalidate('expenses_$_userId');
+    } else {
+      if (existingPersonal != null) {
+        await _client.from('expenses').delete().eq('id', existingPersonal['id']);
+        await LocalCacheService.invalidate('expenses_$_userId');
       }
     }
 

@@ -9,6 +9,8 @@ import '../../../core/theme/app_colors.dart';
 import '../data/group_service.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../expenses/data/expense_service.dart';
+import '../../../core/utils/multi_currency_helper.dart';
+import '../../../core/providers/preferences_provider.dart';
 
 class GroupExpenseEntryScreen extends ConsumerStatefulWidget {
   final String? groupId;
@@ -22,6 +24,7 @@ class _GroupExpenseEntryScreenState extends ConsumerState<GroupExpenseEntryScree
   final _titleController = TextEditingController();
   final _amountController = TextEditingController();
   bool _isSaving = false;
+  String _selectedCurrency = 'INR';
   
   String _selectedCategory = 'other';
   final List<String> _categories = [
@@ -42,6 +45,8 @@ class _GroupExpenseEntryScreenState extends ConsumerState<GroupExpenseEntryScree
   @override
   void initState() {
     super.initState();
+    final prefs = ref.read(preferencesProvider);
+    _selectedCurrency = supportedCurrencies[prefs.currencyIndex].code;
     _amountController.addListener(_onAmountChanged);
   }
 
@@ -205,19 +210,25 @@ class _GroupExpenseEntryScreenState extends ConsumerState<GroupExpenseEntryScree
   Future<void> _saveExpense() async {
     if (widget.groupId == null) return;
     final title = _titleController.text.trim();
-    final amount = double.tryParse(_amountController.text) ?? 0.0;
+    final originalAmount = double.tryParse(_amountController.text) ?? 0.0;
 
-    if (title.isEmpty || amount <= 0) {
+    if (title.isEmpty || originalAmount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter valid details')));
       return;
     }
 
+    final prefs = ref.read(preferencesProvider);
+    final rate = prefs.rates[_selectedCurrency] ?? 1.0;
+    final baseAmount = originalAmount / rate;
+
+    final symbol = supportedCurrencies.firstWhere((c) => c.code == _selectedCurrency, orElse: () => supportedCurrencies[0]).symbol;
+
     if (_splitType == 'custom') {
       final sum = _customSplitAmounts.values.fold(0.0, (a, b) => a + b);
-      if ((sum - amount).abs() > 0.01) {
+      if ((sum - originalAmount).abs() > 0.01) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Total splits (₹${sum.toStringAsFixed(2)}) must equal total amount (₹${amount.toStringAsFixed(2)})'),
+            content: Text('Total splits ($symbol${sum.toStringAsFixed(2)}) must equal total amount ($symbol${originalAmount.toStringAsFixed(2)})'),
             backgroundColor: AppColors.accentRose,
           ),
         );
@@ -227,14 +238,34 @@ class _GroupExpenseEntryScreenState extends ConsumerState<GroupExpenseEntryScree
 
     setState(() => _isSaving = true);
     try {
+      Map<String, double>? baseCustomSplits;
+      if (_splitType == 'custom') {
+        baseCustomSplits = {};
+        for (final entry in _customSplitAmounts.entries) {
+          baseCustomSplits[entry.key] = entry.value / rate;
+        }
+      }
+
+      String finalDesc = title;
+      if (_selectedCurrency != 'INR') {
+        final mcData = MultiCurrencyData(
+          amount: originalAmount,
+          currency: _selectedCurrency,
+          rate: rate,
+          baseAmount: baseAmount,
+          baseCurrency: 'INR',
+        );
+        finalDesc = '${mcData.toToken()} $finalDesc';
+      }
+
       await ref.read(groupServiceProvider).addGroupExpense(
         groupId: widget.groupId!,
-        description: title,
-        amount: amount,
+        description: finalDesc,
+        amount: _selectedCurrency == 'INR' ? originalAmount : baseAmount,
         category: _selectedCategory,
         paidBy: _selectedPayerId,
         splitType: _splitType,
-        customSplits: _splitType == 'custom' ? _customSplitAmounts : null,
+        customSplits: baseCustomSplits,
       );
       ref.invalidate(groupExpensesStreamProvider(widget.groupId!));
       ref.invalidate(expensesStreamProvider);
@@ -256,6 +287,7 @@ class _GroupExpenseEntryScreenState extends ConsumerState<GroupExpenseEntryScree
   Widget build(BuildContext context) {
     if (widget.groupId == null) return const Scaffold(body: Center(child: Text('Error: No Group ID')));
     final membersAsync = ref.watch(groupMembersStreamProvider(widget.groupId!));
+    final currencySymbol = supportedCurrencies.firstWhere((c) => c.code == _selectedCurrency, orElse: () => supportedCurrencies[0]).symbol;
 
     return Scaffold(
       appBar: AppBar(
@@ -278,13 +310,9 @@ class _GroupExpenseEntryScreenState extends ConsumerState<GroupExpenseEntryScree
                 prefixIcon: const Icon(LucideIcons.fileText, color: AppColors.textTertiary),
               ),
               const SizedBox(height: 24),
-              CustomTextField(
-                label: 'Amount',
-                hint: '₹ 0.00',
-                controller: _amountController,
-                keyboardType: TextInputType.number,
-                prefixIcon: const Icon(LucideIcons.indianRupee, color: AppColors.textTertiary),
-              ),
+              const Text('Amount', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              _buildAmountInput(),
               const SizedBox(height: 32),
               
               const Text('Category', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w700)),
@@ -433,11 +461,11 @@ class _GroupExpenseEntryScreenState extends ConsumerState<GroupExpenseEntryScree
                                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                       style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
                                       textAlign: TextAlign.end,
-                                      decoration: const InputDecoration(
-                                        prefixText: ' ₹ ',
-                                        prefixStyle: TextStyle(color: AppColors.textTertiary),
+                                      decoration: InputDecoration(
+                                        prefixText: ' $currencySymbol ',
+                                        prefixStyle: const TextStyle(color: AppColors.textTertiary),
                                         border: InputBorder.none,
-                                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
                                       ),
                                       onChanged: (val) {
                                         final doubleVal = double.tryParse(val) ?? 0.0;
@@ -472,7 +500,7 @@ class _GroupExpenseEntryScreenState extends ConsumerState<GroupExpenseEntryScree
                                     ),
                                   ),
                                   Text(
-                                    '₹${difference.abs().toStringAsFixed(2)}',
+                                    '$currencySymbol${difference.abs().toStringAsFixed(2)}',
                                     style: TextStyle(
                                       color: isMatched ? AppColors.accentEmerald : AppColors.accentRose,
                                       fontWeight: FontWeight.bold,
@@ -503,6 +531,123 @@ class _GroupExpenseEntryScreenState extends ConsumerState<GroupExpenseEntryScree
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildAmountInput() {
+    final prefs = ref.watch(preferencesProvider);
+    final preferredCurrencyCode = supportedCurrencies[prefs.currencyIndex].code;
+    
+    final amountText = _amountController.text;
+    final originalAmount = double.tryParse(amountText) ?? 0.0;
+    String conversionLabel = '';
+    
+    if (originalAmount > 0 && _selectedCurrency != preferredCurrencyCode) {
+      final rate = prefs.rates[_selectedCurrency] ?? 1.0;
+      final baseAmount = originalAmount / rate;
+      final prefRate = prefs.rates[preferredCurrencyCode] ?? 1.0;
+      final convertedAmount = baseAmount * prefRate;
+      conversionLabel = '≈ ${CurrencyFormatter.format(convertedAmount, preferredCurrencyCode)}';
+    }
+
+    final info = supportedCurrencies.firstWhere((c) => c.code == _selectedCurrency, orElse: () => supportedCurrencies[0]);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            PopupMenuButton<String>(
+              initialValue: _selectedCurrency,
+              tooltip: 'Select Currency',
+              color: AppColors.bgElevated,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onSelected: (code) {
+                setState(() {
+                  _selectedCurrency = code;
+                });
+                _onAmountChanged();
+              },
+              itemBuilder: (context) {
+                return supportedCurrencies.map((c) {
+                  return PopupMenuItem<String>(
+                    value: c.code,
+                    child: Row(
+                      children: [
+                        Icon(c.icon, size: 18, color: AppColors.accentCyan),
+                        const SizedBox(width: 10),
+                        Text('${c.code} (${c.symbol})', style: const TextStyle(color: AppColors.textPrimary)),
+                      ],
+                    ),
+                  );
+                }).toList();
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                decoration: BoxDecoration(
+                  color: AppColors.bgSecondary,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      info.symbol,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.accentCyan,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Icon(LucideIcons.chevronDown, color: AppColors.textSecondary, size: 14),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: AppColors.bgSecondary,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: TextFormField(
+                  controller: _amountController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+                  decoration: const InputDecoration(
+                    hintText: '0.00',
+                    hintStyle: TextStyle(color: AppColors.textTertiary),
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    filled: false,
+                  ),
+                  validator: (v) => v!.isEmpty ? 'Required' : null,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (conversionLabel.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: Text(
+              conversionLabel,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

@@ -8,6 +8,8 @@ import '../../../../shared/widgets/gradient_button.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../data/expense_service.dart';
+import '../../../../core/utils/multi_currency_helper.dart';
+import '../../../../core/providers/preferences_provider.dart';
 
 class EditExpenseScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic> expense;
@@ -23,6 +25,7 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
   late final TextEditingController _descController;
   late final ValueNotifier<String> _selectedCategory;
   bool _isSaving = false;
+  String _selectedCurrency = 'INR';
 
   final List<String> _categories = [
     'Food & Dining',
@@ -60,12 +63,19 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
   @override
   void initState() {
     super.initState();
-    final amount = widget.expense['amount']?.toString() ?? '0.00';
-    _amountController = TextEditingController(text: amount);
-    // DB column is 'description', not 'title'
-    _descController = TextEditingController(
-      text: widget.expense['description']?.toString() ?? ''
-    );
+    final rawDesc = widget.expense['description']?.toString() ?? '';
+    final mcData = MultiCurrencyData.parse(rawDesc);
+    
+    if (mcData != null) {
+      _selectedCurrency = mcData.currency;
+      _amountController = TextEditingController(text: mcData.amount.toStringAsFixed(2));
+      _descController = TextEditingController(text: MultiCurrencyData.cleanDescription(rawDesc));
+    } else {
+      _selectedCurrency = 'INR';
+      final amount = widget.expense['amount']?.toString() ?? '0.00';
+      _amountController = TextEditingController(text: amount);
+      _descController = TextEditingController(text: rawDesc);
+    }
     
     // Map DB enum value back to display name
     String dbCat = widget.expense['category']?.toString() ?? 'other';
@@ -78,12 +88,30 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
       setState(() => _isSaving = true);
       
       try {
-        final amount = double.tryParse(_amountController.text) ?? 0.0;
+        final originalAmount = double.tryParse(_amountController.text) ?? 0.0;
+        if (originalAmount <= 0) throw Exception('Please enter a valid amount');
+
+        final prefs = ref.read(preferencesProvider);
+        final rate = prefs.rates[_selectedCurrency] ?? 1.0;
+        final baseAmount = originalAmount / rate;
+
+        String finalDesc = _descController.text.trim();
+        if (_selectedCurrency != 'INR') {
+          final mcData = MultiCurrencyData(
+            amount: originalAmount,
+            currency: _selectedCurrency,
+            rate: rate,
+            baseAmount: baseAmount,
+            baseCurrency: 'INR',
+          );
+          finalDesc = '${mcData.toToken()} $finalDesc';
+        }
+
         await ref.read(expenseServiceProvider).updateExpense(
           widget.expense['id'].toString(),
           {
-            'description': _descController.text.trim(),
-            'amount': amount,
+            'description': finalDesc,
+            'amount': _selectedCurrency == 'INR' ? originalAmount : baseAmount,
             'category': _categoryToEnum[_selectedCategory.value] ?? 'other',
           }
         );
@@ -180,20 +208,77 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
   }
 
   Widget _buildAmountInput() {
+    final prefs = ref.watch(preferencesProvider);
+    final preferredCurrencyCode = supportedCurrencies[prefs.currencyIndex].code;
+    
+    final amountText = _amountController.text;
+    final originalAmount = double.tryParse(amountText) ?? 0.0;
+    String conversionLabel = '';
+    
+    if (originalAmount > 0 && _selectedCurrency != preferredCurrencyCode) {
+      final rate = prefs.rates[_selectedCurrency] ?? 1.0;
+      final baseAmount = originalAmount / rate;
+      final prefRate = prefs.rates[preferredCurrencyCode] ?? 1.0;
+      final convertedAmount = baseAmount * prefRate;
+      conversionLabel = '≈ ${CurrencyFormatter.format(convertedAmount, preferredCurrencyCode)}';
+    }
+
+    final info = supportedCurrencies.firstWhere((c) => c.code == _selectedCurrency, orElse: () => supportedCurrencies[0]);
+
     return Column(
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(
-              '₹',
-              style: AppTheme.moneyStyle.copyWith(
-                fontSize: 32,
-                color: AppColors.textSecondary,
+            PopupMenuButton<String>(
+              initialValue: _selectedCurrency,
+              tooltip: 'Select Currency',
+              color: AppColors.bgElevated,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onSelected: (code) {
+                setState(() {
+                  _selectedCurrency = code;
+                });
+              },
+              itemBuilder: (context) {
+                return supportedCurrencies.map((c) {
+                  return PopupMenuItem<String>(
+                    value: c.code,
+                    child: Row(
+                      children: [
+                        Icon(c.icon, size: 18, color: AppColors.accentCyan),
+                        const SizedBox(width: 10),
+                        Text('${c.code} (${c.symbol})', style: const TextStyle(color: AppColors.textPrimary)),
+                      ],
+                    ),
+                  );
+                }).toList();
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.bgSecondary,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      info.symbol,
+                      style: AppTheme.moneyStyle.copyWith(
+                        fontSize: 24,
+                        color: AppColors.accentCyan,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(LucideIcons.chevronDown, color: AppColors.textSecondary, size: 14),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 14),
             IntrinsicWidth(
               child: TextFormField(
                 controller: _amountController,
@@ -202,6 +287,9 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
                   fontSize: 48,
                   color: AppColors.textPrimary,
                 ),
+                onChanged: (_) {
+                  setState(() {});
+                },
                 decoration: const InputDecoration(
                   hintText: '0.00',
                   hintStyle: TextStyle(color: AppColors.textTertiary),
@@ -216,6 +304,17 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
             ),
           ],
         ),
+        if (conversionLabel.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            conversionLabel,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ],
     );
   }

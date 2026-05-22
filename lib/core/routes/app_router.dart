@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../features/auth/presentation/splash_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/signup_screen.dart';
 import '../../features/dashboard/presentation/dashboard_screen.dart';
@@ -41,8 +42,11 @@ Page<T> _buildPage<T>(GoRouterState state, Widget child) {
 
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
-    initialLocation: '/login',
+    initialLocation: '/splash',
     routes: [
+      // Splash
+      GoRoute(path: '/splash', pageBuilder: (context, state) => _buildPage(state, const SplashScreen())),
+
       // Auth
       GoRoute(path: '/login', pageBuilder: (context, state) => _buildPage(state, const LoginScreen())),
       GoRoute(path: '/signup', pageBuilder: (context, state) => _buildPage(state, const SignupScreen())),

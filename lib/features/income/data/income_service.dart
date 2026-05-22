@@ -4,6 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/database/supabase_service.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/database/local_cache_service.dart';
+import '../../../core/providers/preferences_provider.dart';
+import '../../../core/utils/multi_currency_helper.dart';
 
 // ─── Providers ───────────────────────────────────────────────────────
 
@@ -22,16 +24,20 @@ final incomeStreamProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
 
 final totalIncomeAmountProvider = Provider<double>((ref) {
   final incomeAsync = ref.watch(incomeStreamProvider);
-  return incomeAsync.maybeWhen(
+  final rawAmount = incomeAsync.maybeWhen(
     data: (list) => list.fold<double>(0.0, (sum, e) => sum + _parseAmount(e['amount'])),
     orElse: () => 0.0,
   );
+  final pref = ref.watch(preferencesProvider);
+  final code = supportedCurrencies[pref.currencyIndex].code;
+  final rate = pref.rates[code] ?? 1.0;
+  return rawAmount * rate;
 });
 
 final monthlyIncomeProvider = Provider<double>((ref) {
   final incomeAsync = ref.watch(incomeStreamProvider);
   final now = DateTime.now();
-  return incomeAsync.maybeWhen(
+  final rawAmount = incomeAsync.maybeWhen(
     data: (list) => list.where((e) {
       // Use income_date (the actual DB column) for monthly filtering
       final dateStr = e['income_date']?.toString() ?? e['created_at']?.toString() ?? '';
@@ -40,13 +46,17 @@ final monthlyIncomeProvider = Provider<double>((ref) {
     }).fold<double>(0.0, (sum, e) => sum + _parseAmount(e['amount'])),
     orElse: () => 0.0,
   );
+  final pref = ref.watch(preferencesProvider);
+  final code = supportedCurrencies[pref.currencyIndex].code;
+  final rate = pref.rates[code] ?? 1.0;
+  return rawAmount * rate;
 });
 
 final weeklyIncomeProvider = Provider<double>((ref) {
   final incomeAsync = ref.watch(incomeStreamProvider);
   final now = DateTime.now();
   final weekStart = now.subtract(Duration(days: now.weekday - 1));
-  return incomeAsync.maybeWhen(
+  final rawAmount = incomeAsync.maybeWhen(
     data: (list) => list.where((e) {
       final dateStr = e['income_date']?.toString() ?? e['created_at']?.toString() ?? '';
       final d = DateTime.tryParse(dateStr);
@@ -54,6 +64,10 @@ final weeklyIncomeProvider = Provider<double>((ref) {
     }).fold<double>(0.0, (sum, e) => sum + _parseAmount(e['amount'])),
     orElse: () => 0.0,
   );
+  final pref = ref.watch(preferencesProvider);
+  final code = supportedCurrencies[pref.currencyIndex].code;
+  final rate = pref.rates[code] ?? 1.0;
+  return rawAmount * rate;
 });
 
 double _parseAmount(dynamic amount) {

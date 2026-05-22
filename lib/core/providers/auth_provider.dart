@@ -1,14 +1,23 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../database/supabase_service.dart';
+import '../database/local_cache_service.dart';
 
 final authStateProvider = StreamProvider<AuthState>((ref) {
-  return Supabase.instance.client.auth.onAuthStateChange;
+  try {
+    return Supabase.instance.client.auth.onAuthStateChange;
+  } catch (_) {
+    return const Stream.empty();
+  }
 });
 
 final currentUserProvider = Provider<User?>((ref) {
-  final authState = ref.watch(authStateProvider).value;
-  return authState?.session?.user ?? Supabase.instance.client.auth.currentUser;
+  try {
+    final authState = ref.watch(authStateProvider).value;
+    return authState?.session?.user ?? Supabase.instance.client.auth.currentUser;
+  } catch (_) {
+    return null;
+  }
 });
 
 final userProfileProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
@@ -41,6 +50,7 @@ class AuthService {
   }
 
   Future<void> signOut() async {
+    await LocalCacheService.cacheData('is_logged_in', false);
     await _client.auth.signOut();
   }
   

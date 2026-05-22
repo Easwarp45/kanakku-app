@@ -8,6 +8,7 @@ import '../../../../shared/widgets/custom_text_field.dart';
 import '../../../../shared/widgets/gradient_button.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/providers/auth_provider.dart';
+import '../../../../core/database/local_cache_service.dart';
 
 class SignupScreen extends ConsumerStatefulWidget {
   const SignupScreen({super.key});
@@ -41,6 +42,8 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
             'currency': 'INR',
           });
         }
+        
+        await LocalCacheService.cacheData('is_logged_in', true);
         
         if (mounted) {
           context.go('/dashboard');
@@ -78,31 +81,34 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(
-                    LucideIcons.userPlus,
-                    size: 64,
-                    color: AppColors.accentPurple,
+                  // ── Kanakku Logo ──────────────────────────────────
+                  Image.asset(
+                    'assets/icons/kanakku_logo.png',
+                    width: 100,
+                    height: 100,
+                    fit: BoxFit.contain,
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
                   const Text(
-                    'System Enrollment',
+                    'Create Account',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 32,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w800,
                       color: AppColors.textPrimary,
+                      letterSpacing: -0.5,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   const Text(
-                    'Establish your financial identity matrix.',
+                    'Start your financial journey with Kanakku',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: 15,
                       color: AppColors.textSecondary,
                     ),
                   ),
-                  const SizedBox(height: 48),
+                  const SizedBox(height: 40),
                   GlassCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -147,12 +153,12 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Text(
-                        'Already initialized?',
+                        'Already have an account?',
                         style: TextStyle(color: AppColors.textSecondary),
                       ),
                       TextButton(
                         onPressed: () => context.go('/login'),
-                        child: const Text('Access Terminal'),
+                        child: const Text('Sign In'),
                       ),
                     ],
                   ),

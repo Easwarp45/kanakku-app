@@ -1,0 +1,33 @@
+flutter_launcher_icons:
+  # ─── Android ───────────────────────────────────────────────────────────────
+  android: true
+  image_path_android: "assets/icons/kanakku_logo.png"
+  # Adaptive icon (Android 8.0+) — foreground layer + solid background color
+  adaptive_icon_background: "#0A0D14"   # Near-black matching the logo background
+  adaptive_icon_foreground: "assets/icons/kanakku_logo.png"
+  # Round icons for circular launchers (Pixel, Samsung One UI etc.)
+  adaptive_icon_round: "assets/icons/kanakku_logo.png"
+  min_sdk_android: 21
+
+  # ─── iOS ───────────────────────────────────────────────────────────────────
+  ios: true
+  image_path_ios: "assets/icons/kanakku_logo.png"
+  remove_alpha_ios: true                # App Store requires no transparency
+
+  # ─── Web ───────────────────────────────────────────────────────────────────
+  web:
+    generate: true
+    image_path: "assets/icons/kanakku_logo.png"
+    background_color: "#0A0D14"
+    theme_color: "#00FF88"             # Vibrant green from the K₹ gradient
+
+  # ─── Windows ───────────────────────────────────────────────────────────────
+  windows:
+    generate: true
+    image_path: "assets/icons/kanakku_logo.png"
+    icon_size: 48
+
+  # ─── macOS ─────────────────────────────────────────────────────────────────
+  macos:
+    generate: true
+    image_path: "assets/icons/kanakku_logo.png"

@@ -10,6 +10,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/app_bottom_nav.dart';
 import '../../../shared/widgets/glass_card.dart';
 import '../data/expense_service.dart';
+import '../../../core/utils/multi_currency_helper.dart';
+import '../../../core/providers/preferences_provider.dart';
 
 class TransactionsListScreen extends ConsumerStatefulWidget {
   const TransactionsListScreen({super.key});
@@ -443,6 +445,11 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
   }
 
   Widget _buildPremiumTotalHeader(double total) {
+    final prefs = ref.watch(preferencesProvider);
+    final preferredCurrencyCode = supportedCurrencies[prefs.currencyIndex].code;
+    final convertedTotal = prefs.convertFromBaseline(total);
+    final formattedTotal = CurrencyFormatter.format(convertedTotal, preferredCurrencyCode);
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       padding: const EdgeInsets.all(24),
@@ -486,16 +493,16 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
             ],
           ),
           const SizedBox(height: 12),
-          Text('₹${total.toStringAsFixed(2)}', style: AppTheme.moneyStyle.copyWith(color: Colors.white, fontSize: 42, letterSpacing: -1.5, fontWeight: FontWeight.w800)),
+          Text(formattedTotal, style: AppTheme.moneyStyle.copyWith(color: Colors.white, fontSize: 42, letterSpacing: -1.5, fontWeight: FontWeight.w800)),
         ],
       ),
     );
   }
 
   Widget _buildTransactionCard(Map<String, dynamic> t) {
-    final amount = t['amount'] is num ? (t['amount'] as num).toDouble() : double.tryParse(t['amount'].toString()) ?? 0.0;
+    final baseAmount = t['amount'] is num ? (t['amount'] as num).toDouble() : double.tryParse(t['amount'].toString()) ?? 0.0;
     
-    // DB column is 'description', not 'title'. Strip the internal group-expense prefix.
+    // DB column is 'description', not 'title'. Strip internal prefixes.
     String rawTitle = _cleanDescription(t['description']?.toString() ?? '');
     String rawCategory = t['category']?.toString() ?? 'Expense';
     
@@ -517,6 +524,26 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
     }
 
     String displaySubtitle = hasTitle ? '$formattedDate • ${_capitalize(rawCategory)}' : formattedDate;
+
+    // Currency parsing
+    final prefs = ref.watch(preferencesProvider);
+    final preferredCurrencyCode = supportedCurrencies[prefs.currencyIndex].code;
+
+    final mcData = MultiCurrencyData.parse(t['description']?.toString() ?? '');
+    
+    String formattedAmount = '';
+    String sublabel = '';
+
+    if (mcData != null) {
+      formattedAmount = CurrencyFormatter.format(mcData.amount, mcData.currency);
+      if (preferredCurrencyCode != mcData.currency) {
+        final preferredVal = prefs.convertFromBaseline(baseAmount);
+        sublabel = '≈ ${CurrencyFormatter.format(preferredVal, preferredCurrencyCode)}';
+      }
+    } else {
+      final converted = prefs.convertFromBaseline(baseAmount);
+      formattedAmount = CurrencyFormatter.format(converted, preferredCurrencyCode);
+    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -556,13 +583,30 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  '₹${amount.toStringAsFixed(2)}',
-                  style: AppTheme.moneyStyle.copyWith(
-                    color: AppColors.textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      formattedAmount,
+                      style: AppTheme.moneyStyle.copyWith(
+                        color: AppColors.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (sublabel.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        sublabel,
+                        style: const TextStyle(
+                          color: AppColors.textTertiary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
@@ -580,14 +624,8 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
   /// Strips the internal [GroupExpense: <uuid>|GroupName: <name>] prefix added
   /// when a group expense is replicated into the personal expenses table.
   String _cleanDescription(String raw) {
-    return raw.replaceFirst(RegExp(r'^\[GroupExpense:[^\]]+\]\s*'), '').trim();
-  }
-
-  /// Extracts the embedded group name from a replicated expense description.
-  /// Returns null if the description is not a group expense.
-  String? _extractGroupName(String raw) {
-    final match = RegExp(r'^\[GroupExpense:[^|]+\|GroupName:\s*([^\]]+)\]').firstMatch(raw);
-    return match?.group(1)?.trim();
+    final cleanGroup = raw.replaceFirst(RegExp(r'^\[GroupExpense:[^\]]+\]\s*'), '').trim();
+    return MultiCurrencyData.cleanDescription(cleanGroup);
   }
 
   IconData _getCategoryIcon(String category) {
@@ -666,9 +704,9 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
   }
 
   void _showExpenseDetails(Map<String, dynamic> t) {
-    final amount = t['amount'] is num ? (t['amount'] as num).toDouble() : double.tryParse(t['amount'].toString()) ?? 0.0;
+    final baseAmount = t['amount'] is num ? (t['amount'] as num).toDouble() : double.tryParse(t['amount'].toString()) ?? 0.0;
     
-    // DB column is 'description', not 'title'. Strip the internal group-expense prefix.
+    // DB column is 'description', not 'title'. Strip internal prefixes.
     String rawTitle = _cleanDescription(t['description']?.toString() ?? '');
     String rawCategory = t['category']?.toString() ?? 'Expense';
     
@@ -678,6 +716,29 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
     final dateStr = t['expense_date']?.toString() ?? t['created_at']?.toString();
     DateTime? date = dateStr != null ? DateTime.tryParse(dateStr) : null;
     String formattedFullDate = date != null ? '${date.day} ${_getMonthString(date.month)} ${date.year}, ${date.hour % 12 == 0 ? 12 : date.hour % 12}:${date.minute.toString().padLeft(2, '0')} ${date.hour >= 12 ? 'PM' : 'AM'}' : 'Unknown Date';
+
+    final prefs = ref.read(preferencesProvider);
+    final preferredCurrencyCode = supportedCurrencies[prefs.currencyIndex].code;
+    final mcData = MultiCurrencyData.parse(t['description']?.toString() ?? '');
+
+    String formattedAmount = '';
+    String sublabel = '';
+
+    if (mcData != null) {
+      formattedAmount = CurrencyFormatter.format(mcData.amount, mcData.currency);
+      if (preferredCurrencyCode != mcData.currency) {
+        final preferredVal = prefs.convertFromBaseline(baseAmount);
+        sublabel = '≈ ${CurrencyFormatter.format(preferredVal, preferredCurrencyCode)}';
+      } else if (mcData.currency != 'INR') {
+        sublabel = '≈ ₹${baseAmount.toStringAsFixed(2)}';
+      }
+    } else {
+      final converted = prefs.convertFromBaseline(baseAmount);
+      formattedAmount = CurrencyFormatter.format(converted, preferredCurrencyCode);
+      if (preferredCurrencyCode != 'INR') {
+        sublabel = '≈ ₹${baseAmount.toStringAsFixed(2)}';
+      }
+    }
 
     showModalBottomSheet(
       context: context,
@@ -713,7 +774,11 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
                 const SizedBox(height: 20),
                 Text(displayTitle, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textPrimary, fontSize: 22, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 8),
-                Text('₹${amount.toStringAsFixed(2)}', style: AppTheme.moneyStyle.copyWith(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w800)),
+                Text(formattedAmount, style: AppTheme.moneyStyle.copyWith(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w800)),
+                if (sublabel.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(sublabel, style: const TextStyle(color: AppColors.textSecondary, fontSize: 16, fontWeight: FontWeight.w600)),
+                ],
                 const SizedBox(height: 32),
                 
                 Container(
@@ -740,6 +805,13 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
                         'Description', 
                         rawTitle.isNotEmpty ? rawTitle : 'No description provided'
                       ),
+                      if (mcData != null) ...[
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16.0),
+                          child: Divider(color: AppColors.border, height: 1),
+                        ),
+                        _buildDetailRow(LucideIcons.trendingUp, 'Exchange Rate', '1 INR = ${mcData.rate.toStringAsFixed(4)} ${mcData.currency}'),
+                      ],
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 16.0),
                         child: Divider(color: AppColors.border, height: 1),
@@ -750,7 +822,7 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
                 ),
                 const SizedBox(height: 24),
                 
-                _buildBudgetGuardSection(rawCategory, amount),
+                _buildBudgetGuardSection(rawCategory, baseAmount),
                 
                 const SizedBox(height: 32),
                 

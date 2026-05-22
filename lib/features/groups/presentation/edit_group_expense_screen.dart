@@ -9,6 +9,8 @@ import '../../../core/theme/app_colors.dart';
 import '../data/group_service.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../expenses/data/expense_service.dart';
+import '../../../core/utils/multi_currency_helper.dart';
+import '../../../core/providers/preferences_provider.dart';
 
 class EditGroupExpenseScreen extends ConsumerStatefulWidget {
   final String? groupId;
@@ -32,6 +34,18 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
   final Map<String, TextEditingController> _splitControllers = {};
   bool _isSaving = false;
   bool _isLoadingSplits = false;
+  
+  MultiCurrencyData? _mcData;
+  String _selectedCurrency = 'INR';
+
+  double get _activeRate {
+    if (_selectedCurrency == 'INR') return 1.0;
+    if (_mcData != null && _mcData!.currency == _selectedCurrency) {
+      return _mcData!.rate;
+    }
+    final prefs = ref.read(preferencesProvider);
+    return prefs.rates[_selectedCurrency] ?? 1.0;
+  }
 
   final List<Map<String, dynamic>> _categories = [
     {'id': 'food', 'name': 'Food & Dining', 'icon': LucideIcons.utensils},
@@ -45,12 +59,29 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
   @override
   void initState() {
     super.initState();
-    _amountController = TextEditingController(
-      text: widget.expense?['amount']?.toString() ?? '0.00',
-    );
-    _descController = TextEditingController(
-      text: widget.expense?['description'] ?? '',
-    );
+    final rawDesc = widget.expense?['description'] ?? '';
+    final parsedMc = MultiCurrencyData.parse(rawDesc);
+    
+    if (parsedMc != null) {
+      _mcData = parsedMc;
+      _selectedCurrency = parsedMc.currency;
+      _amountController = TextEditingController(
+        text: parsedMc.amount.toStringAsFixed(2),
+      );
+      _descController = TextEditingController(
+        text: MultiCurrencyData.cleanDescription(rawDesc),
+      );
+    } else {
+      _mcData = null;
+      _selectedCurrency = 'INR';
+      _amountController = TextEditingController(
+        text: widget.expense?['amount']?.toString() ?? '0.00',
+      );
+      _descController = TextEditingController(
+        text: rawDesc,
+      );
+    }
+    
     _selectedCategory = widget.expense?['category'] ?? 'other';
     _selectedPayerId = widget.expense?['paid_by'];
     final rawSplitType = widget.expense?['split_type'] ?? 'equal';
@@ -70,11 +101,12 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
     try {
       final splits = await ref.read(groupServiceProvider).getExpenseSplits(widget.expense!['id']);
       final Map<String, double> map = {};
+      final rate = _activeRate;
       for (final s in splits) {
         final userId = s['user_id'] as String?;
-        final amount = s['amount'] is num ? (s['amount'] as num).toDouble() : 0.0;
+        final amountInBase = s['amount'] is num ? (s['amount'] as num).toDouble() : 0.0;
         if (userId != null) {
-          map[userId] = amount;
+          map[userId] = amountInBase * rate;
         }
       }
       setState(() {
@@ -101,6 +133,10 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
     for (final m in members) {
       final userId = m['user_id'] as String;
       updatedSplits[userId] = double.parse(equalShare.toStringAsFixed(2));
+      final controller = _splitControllers[userId];
+      if (controller != null) {
+        controller.text = equalShare.toStringAsFixed(2);
+      }
     }
     
     setState(() {
@@ -200,19 +236,23 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
       return;
     }
     final title = _descController.text.trim();
-    final amount = double.tryParse(_amountController.text) ?? 0.0;
+    final originalAmount = double.tryParse(_amountController.text) ?? 0.0;
 
-    if (title.isEmpty || amount <= 0) {
+    if (title.isEmpty || originalAmount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter valid details')));
       return;
     }
 
+    final info = supportedCurrencies.firstWhere((c) => c.code == _selectedCurrency, orElse: () => supportedCurrencies[0]);
+    final rate = _activeRate;
+    final baseAmount = _selectedCurrency == 'INR' ? originalAmount : (originalAmount / rate);
+
     if (_splitType == 'custom') {
       final sum = _customSplitAmounts.values.fold(0.0, (a, b) => a + b);
-      if ((sum - amount).abs() > 0.01) {
+      if ((sum - originalAmount).abs() > 0.01) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Total splits (₹${sum.toStringAsFixed(2)}) must equal total amount (₹${amount.toStringAsFixed(2)})'),
+            content: Text('Total splits (${info.symbol}${sum.toStringAsFixed(2)}) must equal total amount (${info.symbol}${originalAmount.toStringAsFixed(2)})'),
             backgroundColor: AppColors.accentRose,
           ),
         );
@@ -223,15 +263,36 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
     setState(() => _isSaving = true);
     try {
       final currentUserId = ref.read(currentUserProvider)?.id ?? '';
+      
+      Map<String, double>? baseCustomSplits;
+      if (_splitType == 'custom') {
+        baseCustomSplits = {};
+        for (final entry in _customSplitAmounts.entries) {
+          baseCustomSplits[entry.key] = entry.value / rate;
+        }
+      }
+
+      String finalDesc = title;
+      if (_selectedCurrency != 'INR') {
+        final mcData = MultiCurrencyData(
+          amount: originalAmount,
+          currency: _selectedCurrency,
+          rate: rate,
+          baseAmount: baseAmount,
+          baseCurrency: 'INR',
+        );
+        finalDesc = '${mcData.toToken()} $finalDesc';
+      }
+
       await ref.read(groupServiceProvider).updateGroupExpense(
         groupId: widget.groupId!,
         expenseId: widget.expense!['id'],
-        description: title,
-        amount: amount,
+        description: finalDesc,
+        amount: baseAmount,
         category: _selectedCategory,
         paidBy: _selectedPayerId ?? currentUserId,
         splitType: _splitType,
-        customSplits: _splitType == 'custom' ? _customSplitAmounts : null,
+        customSplits: baseCustomSplits,
       );
       
       ref.invalidate(groupExpensesStreamProvider(widget.groupId!));
@@ -365,6 +426,8 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
             final payer = members.firstWhere((m) => m['user_id'] == payerId, orElse: () => {});
             final payerName = payerId == currentUserId ? 'You' : (payer['nickname'] ?? payer['display_name'] ?? 'Member');
 
+            final info = supportedCurrencies.firstWhere((c) => c.code == _selectedCurrency, orElse: () => supportedCurrencies[0]);
+
             return SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Column(
@@ -373,66 +436,154 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
                   const SizedBox(height: 8),
                   
                   // Amount Section
-                  GlassCard(
-                    margin: EdgeInsets.zero,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
+                  Builder(
+                    builder: (context) {
+                      final prefs = ref.watch(preferencesProvider);
+                      final preferredCurrencyCode = supportedCurrencies[prefs.currencyIndex].code;
+                      
+                      final amountText = _amountController.text;
+                      final originalAmount = double.tryParse(amountText) ?? 0.0;
+                      String conversionLabel = '';
+                      
+                      if (originalAmount > 0 && _selectedCurrency != preferredCurrencyCode) {
+                        final rate = _activeRate;
+                        final baseAmount = originalAmount / rate;
+                        final prefRate = prefs.rates[preferredCurrencyCode] ?? 1.0;
+                        final convertedAmount = baseAmount * prefRate;
+                        conversionLabel = '≈ ${CurrencyFormatter.format(convertedAmount, preferredCurrencyCode)}';
+                      }
+
+                      return GlassCard(
+                        margin: EdgeInsets.zero,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
                             children: [
-                              const Text('₹', style: TextStyle(color: AppColors.accentCyan, fontSize: 36, fontWeight: FontWeight.w800)),
-                              const SizedBox(width: 8),
-                              IntrinsicWidth(
-                                child: TextField(
-                                  controller: _amountController,
-                                  readOnly: !isOwner,
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  if (isOwner)
+                                    PopupMenuButton<String>(
+                                      initialValue: _selectedCurrency,
+                                      tooltip: 'Select Currency',
+                                      color: AppColors.bgSecondary,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                      onSelected: (code) {
+                                        setState(() {
+                                          _selectedCurrency = code;
+                                        });
+                                        _onAmountChanged();
+                                      },
+                                      itemBuilder: (context) {
+                                        return supportedCurrencies.map((c) {
+                                          return PopupMenuItem<String>(
+                                            value: c.code,
+                                            child: Row(
+                                              children: [
+                                                Icon(c.icon, size: 18, color: AppColors.accentCyan),
+                                                const SizedBox(width: 10),
+                                                Text('${c.code} (${c.symbol})', style: const TextStyle(color: AppColors.textPrimary)),
+                                              ],
+                                            ),
+                                          );
+                                        }).toList();
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.bgTertiary,
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: AppColors.borderSubtle),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              info.symbol,
+                                              style: const TextStyle(
+                                                fontSize: 24,
+                                                fontWeight: FontWeight.w800,
+                                                color: AppColors.accentCyan,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            const Icon(LucideIcons.chevronDown, color: AppColors.accentCyan, size: 14),
+                                          ],
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    Text(
+                                      info.symbol,
+                                      style: const TextStyle(
+                                        color: AppColors.accentCyan,
+                                        fontSize: 36,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  const SizedBox(width: 8),
+                                  IntrinsicWidth(
+                                    child: TextField(
+                                      controller: _amountController,
+                                      readOnly: !isOwner,
+                                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                      style: const TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontSize: 42,
+                                        fontWeight: FontWeight.w800,
+                                        fontFamily: 'JetBrainsMono',
+                                      ),
+                                      decoration: const InputDecoration(
+                                        border: InputBorder.none,
+                                        enabledBorder: InputBorder.none,
+                                        focusedBorder: InputBorder.none,
+                                        filled: false,
+                                        hintText: '0.00',
+                                        hintStyle: TextStyle(color: AppColors.textTertiary),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (conversionLabel.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  conversionLabel,
                                   style: const TextStyle(
-                                    color: AppColors.textPrimary,
-                                    fontSize: 42,
-                                    fontWeight: FontWeight.w800,
-                                    fontFamily: 'JetBrainsMono',
+                                    color: AppColors.textSecondary,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
                                   ),
-                                  decoration: const InputDecoration(
-                                    border: InputBorder.none,
-                                    enabledBorder: InputBorder.none,
-                                    focusedBorder: InputBorder.none,
-                                    filled: false,
-                                    hintText: '0.00',
-                                    hintStyle: TextStyle(color: AppColors.textTertiary),
-                                  ),
+                                ),
+                              ],
+                              Divider(color: AppColors.borderSubtle, height: 24),
+                              GestureDetector(
+                                onTap: isOwner ? () => _showPayerSelectionSheet(members) : null,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Text('Paid by ', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w500)),
+                                    Text(
+                                      payerName,
+                                      style: TextStyle(
+                                        color: AppColors.accentCyan,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        decoration: isOwner ? TextDecoration.underline : TextDecoration.none,
+                                      ),
+                                    ),
+                                    if (isOwner) ...[
+                                      const SizedBox(width: 4),
+                                      const Icon(LucideIcons.chevronDown, color: AppColors.accentCyan, size: 14),
+                                    ],
+                                  ],
                                 ),
                               ),
                             ],
                           ),
-                          Divider(color: AppColors.borderSubtle, height: 24),
-                          GestureDetector(
-                            onTap: isOwner ? () => _showPayerSelectionSheet(members) : null,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Text('Paid by ', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w500)),
-                                Text(
-                                  payerName,
-                                  style: TextStyle(
-                                    color: AppColors.accentCyan,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    decoration: isOwner ? TextDecoration.underline : TextDecoration.none,
-                                  ),
-                                ),
-                                if (isOwner) ...[
-                                  const SizedBox(width: 4),
-                                  const Icon(LucideIcons.chevronDown, color: AppColors.accentCyan, size: 14),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                        ),
+                      );
+                    },
                   ),
 
                   const SizedBox(height: 24),
@@ -602,7 +753,7 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
                                             textAlign: TextAlign.end,
                                             style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontFamily: 'JetBrainsMono', fontWeight: FontWeight.w700),
                                             decoration: InputDecoration(
-                                              prefixText: '₹',
+                                              prefixText: info.symbol,
                                               prefixStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
                                               contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: AppColors.borderSubtle)),
@@ -652,8 +803,8 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
                                             isMatched
                                                 ? 'Total matched!'
                                                 : (difference > 0
-                                                    ? '₹${difference.toStringAsFixed(2)} remaining to assign'
-                                                    : 'Over-allocated by ₹${difference.abs().toStringAsFixed(2)}'),
+                                                    ? '${info.symbol}${difference.toStringAsFixed(2)} remaining to assign'
+                                                    : 'Over-allocated by ${info.symbol}${difference.abs().toStringAsFixed(2)}'),
                                             style: TextStyle(
                                               color: isMatched ? AppColors.accentEmerald : AppColors.accentRose,
                                               fontSize: 12,

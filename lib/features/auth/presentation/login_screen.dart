@@ -8,6 +8,7 @@ import '../../../../shared/widgets/custom_text_field.dart';
 import '../../../../shared/widgets/gradient_button.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/providers/auth_provider.dart';
+import '../../../../core/database/local_cache_service.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -30,6 +31,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               _emailController.text.trim(),
               _passwordController.text,
             );
+        await LocalCacheService.cacheData('is_logged_in', true);
         if (mounted) {
           context.go('/dashboard');
         }
@@ -66,31 +68,34 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(
-                    LucideIcons.hexagon,
-                    size: 64,
-                    color: AppColors.accentCyan,
+                  // ── Kanakku Logo ──────────────────────────────────
+                  Image.asset(
+                    'assets/icons/kanakku_logo.png',
+                    width: 100,
+                    height: 100,
+                    fit: BoxFit.contain,
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
                   const Text(
-                    'Terminal Access',
+                    'Kanakku',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 34,
+                      fontWeight: FontWeight.w800,
                       color: AppColors.textPrimary,
+                      letterSpacing: -0.5,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   const Text(
-                    'Authorized personnel only. Please verify credentials.',
+                    'Your personal finance companion',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: 15,
                       color: AppColors.textSecondary,
                     ),
                   ),
-                  const SizedBox(height: 48),
+                  const SizedBox(height: 40),
                   GlassCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -135,12 +140,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Text(
-                        'New controller?',
+                        'New to Kanakku?',
                         style: TextStyle(color: AppColors.textSecondary),
                       ),
                       TextButton(
                         onPressed: () => context.go('/signup'),
-                        child: const Text('Apply for Sign Up'),
+                        child: const Text('Create Account'),
                       ),
                     ],
                   ),

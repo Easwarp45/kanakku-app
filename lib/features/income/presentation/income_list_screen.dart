@@ -7,6 +7,8 @@ import '../../../shared/widgets/glass_card.dart';
 import '../../../shared/widgets/app_bottom_nav.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/providers/preferences_provider.dart';
+import '../../../core/utils/multi_currency_helper.dart';
 import '../data/income_service.dart';
 
 class IncomeListScreen extends ConsumerStatefulWidget {
@@ -74,11 +76,14 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
     final incomeAsync = ref.watch(incomeStreamProvider);
     final totalIncome = ref.watch(totalIncomeAmountProvider);
     final monthlyIncome = ref.watch(monthlyIncomeProvider);
+    final prefs = ref.watch(preferencesProvider);
+    final preferredCurrencyCode = supportedCurrencies[prefs.currencyIndex].code;
 
     Future<void> handleRefresh() async {
       ref.invalidate(incomeStreamProvider);
       ref.invalidate(totalIncomeAmountProvider);
       ref.invalidate(monthlyIncomeProvider);
+      await ref.read(preferencesProvider.notifier).fetchRates(force: true);
       await Future.delayed(const Duration(milliseconds: 500));
     }
 
@@ -94,7 +99,7 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
             slivers: [
               SliverToBoxAdapter(child: _buildHeader(context)),
               const SliverToBoxAdapter(child: SizedBox(height: 20)),
-              SliverToBoxAdapter(child: _buildTotalCard(totalIncome, monthlyIncome)),
+              SliverToBoxAdapter(child: _buildTotalCard(totalIncome, monthlyIncome, preferredCurrencyCode)),
               const SliverToBoxAdapter(child: SizedBox(height: 24)),
               SliverToBoxAdapter(child: _buildSectionTitle('Visual Analytics')),
               SliverToBoxAdapter(child: _buildAnalyticsCards(incomeAsync)),
@@ -175,7 +180,7 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
   }
 
 
-  Widget _buildTotalCard(double total, double monthly) {
+  Widget _buildTotalCard(double total, double monthly, String preferredCurrencyCode) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Container(
@@ -207,7 +212,10 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            Text('₹${total.toStringAsFixed(2)}', style: AppTheme.moneyStyle.copyWith(fontSize: 40, color: Colors.white, fontWeight: FontWeight.w800)),
+            Text(
+              CurrencyFormatter.format(total, preferredCurrencyCode),
+              style: AppTheme.moneyStyle.copyWith(fontSize: 36, color: Colors.white, fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 20),
             Row(
               children: [
@@ -217,7 +225,10 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
                     children: [
                       const Text('THIS MONTH', style: TextStyle(color: Colors.white60, fontSize: 9, fontWeight: FontWeight.w700)),
                       const SizedBox(height: 4),
-                      Text('₹${monthly.toStringAsFixed(0)}', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                      Text(
+                        CurrencyFormatter.format(monthly, preferredCurrencyCode),
+                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                      ),
                     ],
                   ),
                 ),
@@ -229,7 +240,10 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
                     children: [
                       const Text('AVG. DAILY', style: TextStyle(color: Colors.white60, fontSize: 9, fontWeight: FontWeight.w700)),
                       const SizedBox(height: 4),
-                      Text('₹${(monthly / 30).toStringAsFixed(0)}', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                      Text(
+                        CurrencyFormatter.format(monthly / 30, preferredCurrencyCode),
+                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                      ),
                     ],
                   ),
                 ),
@@ -468,9 +482,9 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
   }
 
   Widget _buildIncomeCard(Map<String, dynamic> t) {
-    final amount = _parseAmt(t['amount']);
-    // Read DB columns: 'description' (not 'title'), 'source' (not 'category')
-    final description = t['description']?.toString() ?? '';
+    final baseAmount = _parseAmt(t['amount']);
+    final rawDesc = t['description']?.toString() ?? '';
+    final cleanDesc = MultiCurrencyData.cleanDescription(rawDesc);
     final source = t['source']?.toString() ?? 'other';
     final meta = incomeSources[source] ?? const IncomeSourceMeta('Other', '📦');
     
@@ -479,7 +493,25 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
     String dateStr = d != null ? DateFormat('MMM dd, yyyy').format(d) : 'Unknown';
 
     // Show description if available, otherwise show the source display name
-    final displayTitle = description.isNotEmpty ? description : meta.displayName;
+    final displayTitle = cleanDesc.isNotEmpty ? cleanDesc : meta.displayName;
+
+    final prefs = ref.watch(preferencesProvider);
+    final preferredCurrencyCode = supportedCurrencies[prefs.currencyIndex].code;
+    final mcData = MultiCurrencyData.parse(rawDesc);
+
+    String formattedAmount = '';
+    String sublabel = '';
+
+    if (mcData != null) {
+      formattedAmount = '+${CurrencyFormatter.format(mcData.amount, mcData.currency)}';
+      if (preferredCurrencyCode != mcData.currency) {
+        final preferredVal = prefs.convertFromBaseline(baseAmount);
+        sublabel = '≈ ${CurrencyFormatter.format(preferredVal, preferredCurrencyCode)}';
+      }
+    } else {
+      final converted = prefs.convertFromBaseline(baseAmount);
+      formattedAmount = '+${CurrencyFormatter.format(converted, preferredCurrencyCode)}';
+    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -497,11 +529,27 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
         ),
         title: Text(displayTitle, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 15)),
         subtitle: Text('$dateStr • ${meta.displayName}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text('+₹${amount.toStringAsFixed(0)}', style: AppTheme.moneyStyle.copyWith(color: AppColors.accentEmerald, fontSize: 16, fontWeight: FontWeight.w800)),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  formattedAmount,
+                  style: AppTheme.moneyStyle.copyWith(color: AppColors.accentEmerald, fontSize: 16, fontWeight: FontWeight.w800),
+                ),
+                if (sublabel.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    sublabel,
+                    style: const TextStyle(color: AppColors.textTertiary, fontSize: 11, fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(width: 8),
             const Icon(LucideIcons.chevronRight, color: AppColors.textTertiary, size: 14),
           ],
         ),
@@ -511,11 +559,36 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
   }
 
   void _showIncomeDetails(BuildContext context, Map<String, dynamic> t) {
-    final amount = _parseAmt(t['amount']);
-    final description = t['description']?.toString() ?? 'No description';
+    final baseAmount = _parseAmt(t['amount']);
+    final rawDesc = t['description']?.toString() ?? '';
+    final cleanDesc = MultiCurrencyData.cleanDescription(rawDesc);
+    final displayDescription = cleanDesc.isNotEmpty ? cleanDesc : 'No description';
     final source = t['source']?.toString() ?? 'other';
     final meta = incomeSources[source] ?? const IncomeSourceMeta('Other', '📦');
     final isRecurring = t['is_recurring'] == true;
+
+    final prefs = ref.read(preferencesProvider);
+    final preferredCurrencyCode = supportedCurrencies[prefs.currencyIndex].code;
+    final mcData = MultiCurrencyData.parse(rawDesc);
+
+    String formattedAmount = '';
+    String sublabel = '';
+
+    if (mcData != null) {
+      formattedAmount = CurrencyFormatter.format(mcData.amount, mcData.currency);
+      if (preferredCurrencyCode != mcData.currency) {
+        final preferredVal = prefs.convertFromBaseline(baseAmount);
+        sublabel = '≈ ${CurrencyFormatter.format(preferredVal, preferredCurrencyCode)}';
+      } else if (mcData.currency != 'INR') {
+        sublabel = '≈ ₹${baseAmount.toStringAsFixed(2)}';
+      }
+    } else {
+      final converted = prefs.convertFromBaseline(baseAmount);
+      formattedAmount = CurrencyFormatter.format(converted, preferredCurrencyCode);
+      if (preferredCurrencyCode != 'INR') {
+        sublabel = '≈ ₹${baseAmount.toStringAsFixed(2)}';
+      }
+    }
 
     showModalBottomSheet(
       context: context,
@@ -533,9 +606,13 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
             const SizedBox(height: 16),
             Text(meta.emoji, style: const TextStyle(fontSize: 48)),
             const SizedBox(height: 8),
-            Text(description, style: const TextStyle(color: AppColors.textPrimary, fontSize: 24, fontWeight: FontWeight.w800)),
+            Text(displayDescription, style: const TextStyle(color: AppColors.textPrimary, fontSize: 24, fontWeight: FontWeight.w800), textAlign: TextAlign.center),
             const SizedBox(height: 8),
-            Text('₹${amount.toStringAsFixed(2)}', style: AppTheme.moneyStyle.copyWith(color: AppColors.accentEmerald, fontSize: 32)),
+            Text(formattedAmount, style: AppTheme.moneyStyle.copyWith(color: AppColors.accentEmerald, fontSize: 32, fontWeight: FontWeight.w800)),
+            if (sublabel.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(sublabel, style: const TextStyle(color: AppColors.textSecondary, fontSize: 16, fontWeight: FontWeight.w600)),
+            ],
             const SizedBox(height: 32),
             GlassCard(
               padding: const EdgeInsets.all(20),
@@ -546,7 +623,11 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
                   const Divider(color: AppColors.border, height: 24),
                   _detailItem(LucideIcons.repeat, 'Recurring', isRecurring ? 'Yes' : 'No'),
                   const Divider(color: AppColors.border, height: 24),
-                  _detailItem(LucideIcons.alignLeft, 'Description', description),
+                  _detailItem(LucideIcons.alignLeft, 'Description', displayDescription),
+                  if (mcData != null) ...[
+                    const Divider(color: AppColors.border, height: 24),
+                    _detailItem(LucideIcons.trendingUp, 'Exchange Rate', '1 INR = ${mcData.rate.toStringAsFixed(4)} ${mcData.currency}'),
+                  ],
                 ],
               ),
             ),

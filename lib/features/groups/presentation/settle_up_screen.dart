@@ -6,6 +6,8 @@ import '../../../shared/widgets/glass_card.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/providers/preferences_provider.dart';
+import '../../../core/utils/multi_currency_helper.dart';
 import '../data/group_service.dart';
 
 class SettleUpScreen extends ConsumerStatefulWidget {
@@ -64,6 +66,10 @@ class _SettleUpScreenState extends ConsumerState<SettleUpScreen> {
     final amount = data['amount'] ?? 0.0;
     final name = data['name'] ?? 'Recipient';
 
+    final prefs = ref.watch(preferencesProvider);
+    final preferredCurrencyCode = supportedCurrencies[prefs.currencyIndex].code;
+    final convertedAmount = prefs.convertFromBaseline(amount);
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -86,7 +92,10 @@ class _SettleUpScreenState extends ConsumerState<SettleUpScreen> {
               const SizedBox(height: 16),
               Text('You are paying $name', style: const TextStyle(color: AppColors.textSecondary, fontSize: 16)),
               const SizedBox(height: 8),
-              Text('₹${amount.toStringAsFixed(2)}', style: AppTheme.moneyStyle.copyWith(color: AppColors.accentEmerald, fontSize: 40)),
+              Text(
+                CurrencyFormatter.format(convertedAmount, preferredCurrencyCode), 
+                style: AppTheme.moneyStyle.copyWith(color: AppColors.accentEmerald, fontSize: 40),
+              ),
               const SizedBox(height: 32),
               GlassCard(
                 margin: EdgeInsets.zero,

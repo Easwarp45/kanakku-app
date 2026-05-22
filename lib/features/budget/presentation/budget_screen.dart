@@ -1,14 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
-import 'package:lucide_icons/lucide_icons.dart';
-import '../../../shared/widgets/glass_card.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_theme.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../expenses/data/expense_service.dart';
-import '../data/budget_service.dart';
-
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -18,7 +8,8 @@ import 'package:intl/intl.dart';
 import '../../../shared/widgets/glass_card.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/gradient_button.dart';
+import '../../../core/utils/multi_currency_helper.dart';
+import '../../../core/providers/preferences_provider.dart';
 
 import '../../expenses/data/expense_service.dart';
 import '../data/budget_service.dart';
@@ -252,6 +243,8 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
   }
 
   Widget _buildSummaryCard(double totalBudget, double totalSpent) {
+    final prefState = ref.watch(preferencesProvider);
+    final prefCurrency = supportedCurrencies[prefState.currencyIndex];
     final progress = totalBudget > 0 ? (totalSpent / totalBudget).clamp(0.0, 1.0) : 0.0;
     final remaining = totalBudget - totalSpent;
 
@@ -284,13 +277,13 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          Text('₹${totalBudget.toStringAsFixed(2)}', style: AppTheme.moneyStyle.copyWith(fontSize: 42, color: Colors.white, height: 1.0)),
+          Text(CurrencyFormatter.format(totalBudget, prefCurrency.code), style: AppTheme.moneyStyle.copyWith(fontSize: 42, color: Colors.white, height: 1.0)),
           const SizedBox(height: 24),
           Row(
             children: [
-              Expanded(child: _buildMiniSummary('SPENT', '₹${totalSpent.toStringAsFixed(2)}', AppColors.accentRose)),
+              Expanded(child: _buildMiniSummary('SPENT', CurrencyFormatter.format(totalSpent, prefCurrency.code), AppColors.accentRose)),
               Container(width: 1, height: 30, color: Colors.white12),
-              Expanded(child: _buildMiniSummary('REMAINING', '₹${remaining.clamp(0, double.infinity).toStringAsFixed(2)}', AppColors.accentCyan)),
+              Expanded(child: _buildMiniSummary('REMAINING', CurrencyFormatter.format(remaining.clamp(0, double.infinity), prefCurrency.code), AppColors.accentCyan)),
             ],
           ),
           const SizedBox(height: 24),
@@ -376,6 +369,8 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
   }
 
   Widget _buildDailyLimitCard(double totalBudget, double totalSpent) {
+    final prefState = ref.watch(preferencesProvider);
+    final prefCurrency = supportedCurrencies[prefState.currencyIndex];
     final now = DateTime.now();
     final lastDay = DateTime(now.year, now.month + 1, 0).day;
     final remainingDays = (lastDay - now.day) + 1;
@@ -397,7 +392,7 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('₹${dailyLimit.toStringAsFixed(0)}/day', style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800, fontSize: 16)),
+                    Text('${CurrencyFormatter.format(dailyLimit, prefCurrency.code)}/day', style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800, fontSize: 16)),
                     Text('$remainingDays Days left', style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
                   ],
                 ),
@@ -489,7 +484,14 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
   }
 
   Widget _buildCategoryCard(Map<String, dynamic> budget, double spent) {
+    final prefState = ref.watch(preferencesProvider);
+    final prefCurrency = supportedCurrencies[prefState.currencyIndex];
+    final notifier = ref.read(preferencesProvider.notifier);
+
     final limit = double.tryParse(budget['amount']?.toString() ?? '0') ?? 0.0;
+    final limitPref = notifier.convertFromBaseline(limit);
+    final spentPref = notifier.convertFromBaseline(spent);
+
     final progress = limit > 0 ? (spent / limit).clamp(0.0, 1.0) : 0.0;
     final isOver = spent > limit;
     final color = isOver ? AppColors.accentRose : AppColors.accentEmerald;
@@ -523,14 +525,14 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(budget['category'] ?? 'Others', style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
-                          Text('Limit: ₹${limit.toStringAsFixed(0)}', style: const TextStyle(color: AppColors.textTertiary, fontSize: 12)),
+                          Text('Limit: ${CurrencyFormatter.format(limitPref, prefCurrency.code)}', style: const TextStyle(color: AppColors.textTertiary, fontSize: 12)),
                         ],
                       ),
                     ),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Text('₹${spent.toStringAsFixed(0)}', style: AppTheme.moneyStyle.copyWith(fontSize: 18, color: isOver ? AppColors.accentRose : AppColors.textPrimary)),
+                        Text(CurrencyFormatter.format(spentPref, prefCurrency.code), style: AppTheme.moneyStyle.copyWith(fontSize: 18, color: isOver ? AppColors.accentRose : AppColors.textPrimary)),
                         Text(isOver ? 'OVER BUDGET' : 'UTILIZED', style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 0.5)),
                       ],
                     ),

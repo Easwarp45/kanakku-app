@@ -3,7 +3,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'realtime_sync_manager.dart';
 
 final supabaseClientProvider = Provider<SupabaseClient>((ref) {
-  return Supabase.instance.client;
+  try {
+    return Supabase.instance.client;
+  } catch (_) {
+    return SupabaseClient('https://dummy.supabase.co', 'dummyKey');
+  }
 });
 
 final realtimeSyncManagerProvider = Provider<RealtimeSyncManager>((ref) {

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -12,6 +11,7 @@ import 'core/database/local_cache_service.dart';
 import 'core/logging/app_logger.dart';
 import 'core/ui/global_error_handler.dart';
 import 'core/feature_flags/feature_flags.dart';
+import 'core/providers/preferences_provider.dart';
 
 Future<void> main() async {
   // Protect the entire app in a zone so unhandled async errors are caught
@@ -100,12 +100,28 @@ class KanakkuApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
+    final prefs = ref.watch(preferencesProvider);
+    
+    ThemeMode themeMode;
+    switch (prefs.themeIndex) {
+      case 0:
+        themeMode = ThemeMode.system;
+        break;
+      case 1:
+        themeMode = ThemeMode.dark;
+        break;
+      case 2:
+        themeMode = ThemeMode.light;
+        break;
+      default:
+        themeMode = ThemeMode.dark;
+    }
 
     return MaterialApp.router(
       title: 'Kanakku Expense Tracker',
       theme: AppTheme.darkTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.dark,
+      themeMode: themeMode,
       routerConfig: router,
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,

@@ -12,6 +12,8 @@ import '../../../core/providers/membership_guard_provider.dart';
 import '../../expenses/data/expense_service.dart';
 import '../../../core/database/local_cache_service.dart';
 import '../../../core/database/chat_reconciliation_engine.dart';
+import '../../../core/providers/preferences_provider.dart';
+import '../../../core/utils/multi_currency_helper.dart';
 
 
 class GroupDetailScreen extends ConsumerStatefulWidget {
@@ -228,6 +230,9 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
     final balances = _calculateBalances(currentUserId, expenses, settlements, members);
     final myBalance = balances[currentUserId] ?? 0.0;
 
+    final prefs = ref.watch(preferencesProvider);
+    final preferredCurrencyCode = supportedCurrencies[prefs.currencyIndex].code;
+
     return Scaffold(
       backgroundColor: AppColors.bgPrimary,
       body: SafeArea(
@@ -237,7 +242,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
             if (!isKeyboardOpen)
               RepaintBoundary(
                 child: _buildGlassHeroCard(
-                    safeGroup, myBalance, members, currentUserId, expenses.length),
+                    safeGroup, myBalance, members, currentUserId, expenses.length, prefs, preferredCurrencyCode),
               ),
             _buildModernTabBar(),
             Expanded(
@@ -246,10 +251,10 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
                 children: [
                   // Each tab is isolated — rebuilds independently
                   RepaintBoundary(
-                    child: _buildExpensesTab(expenses, members, currentUserId),
+                    child: _buildExpensesTab(expenses, members, currentUserId, prefs, preferredCurrencyCode),
                   ),
                   RepaintBoundary(
-                    child: _buildBalancesTab(balances, members, currentUserId),
+                    child: _buildBalancesTab(balances, members, currentUserId, prefs, preferredCurrencyCode),
                   ),
                   // Chat tab is fully isolated — has its own stream watch
                   RepaintBoundary(
@@ -442,10 +447,10 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
       ),
     );
   }
-
-  Widget _buildGlassHeroCard(Map<String, dynamic> group, double myBalance, List<Map<String, dynamic>> members, String currentUserId, int expenseCount) {
+     Widget _buildGlassHeroCard(Map<String, dynamic> group, double myBalance, List<Map<String, dynamic>> members, String currentUserId, int expenseCount, PreferencesState prefs, String preferredCurrencyCode) {
     final isOwed = myBalance >= 0;
     final absBalance = myBalance.abs();
+    final preferredBalance = prefs.convertFromBaseline(absBalance);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -479,7 +484,10 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
                         FittedBox(
                           fit: BoxFit.scaleDown,
                           alignment: Alignment.centerLeft,
-                          child: Text('₹${absBalance.toStringAsFixed(2)}', style: AppTheme.moneyStyle.copyWith(color: isOwed ? AppColors.accentCyan : AppColors.accentRose, fontSize: 32)),
+                          child: Text(
+                            CurrencyFormatter.format(preferredBalance, preferredCurrencyCode),
+                            style: AppTheme.moneyStyle.copyWith(color: isOwed ? AppColors.accentCyan : AppColors.accentRose, fontSize: 32),
+                          ),
                         ),
                       ],
                     ),
@@ -578,7 +586,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
         tabs: const [
           Tab(text: 'EXPENSES'),
           Tab(text: 'BALANCES'),
-          Tab(text: 'CHAT'),
+          Tab(text: 'CHATS'),
           Tab(text: 'MEMBERS'),
           Tab(text: 'ANALYTICS'),
         ],
@@ -586,7 +594,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
     );
   }
 
-  Widget _buildExpensesTab(List<Map<String, dynamic>> expenses, List<Map<String, dynamic>> members, String currentUserId) {
+  Widget _buildExpensesTab(List<Map<String, dynamic>> expenses, List<Map<String, dynamic>> members, String currentUserId, PreferencesState prefs, String preferredCurrencyCode) {
     final Widget content;
     if (expenses.isEmpty) {
       content = LayoutBuilder(
@@ -629,6 +637,40 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
           final payerName = isMe ? 'You' : (payer['nickname'] ?? payer['display_name'] ?? 'Member');
           
           final splitShare = members.isNotEmpty ? amount / members.length : 0.0;
+
+          // Double token check and MultiCurrencyData parsing
+          final cleanGroupDesc = e['description']?.toString().replaceFirst(RegExp(r'^\[GroupExpense:[^\]]+\]\s*'), '').trim() ?? '';
+          final mcData = MultiCurrencyData.parse(cleanGroupDesc);
+          final cleanTitle = MultiCurrencyData.cleanDescription(cleanGroupDesc);
+          final displayTitle = cleanTitle.isNotEmpty ? cleanTitle : 'Expense';
+
+          String formattedAmount = '';
+          String subAmountText = '';
+
+          if (mcData != null) {
+            formattedAmount = CurrencyFormatter.format(mcData.amount, mcData.currency);
+            final origOwed = mcData.amount - (mcData.amount / members.length);
+            final origOwe = mcData.amount / members.length;
+            final displayOrigSub = isMe
+                ? 'Owed ${CurrencyFormatter.format(origOwed, mcData.currency)}'
+                : 'You owe ${CurrencyFormatter.format(origOwe, mcData.currency)}';
+            
+            if (preferredCurrencyCode != mcData.currency) {
+              final prefVal = prefs.convertFromBaseline(amount);
+              final prefShare = prefs.convertFromBaseline(splitShare);
+              final displayShare = isMe ? (prefVal - prefShare) : prefShare;
+              subAmountText = '$displayOrigSub (≈ ${CurrencyFormatter.format(displayShare, preferredCurrencyCode)})';
+            } else {
+              subAmountText = displayOrigSub;
+            }
+          } else {
+            final convertedAmount = prefs.convertFromBaseline(amount);
+            final convertedSplit = prefs.convertFromBaseline(splitShare);
+            formattedAmount = CurrencyFormatter.format(convertedAmount, preferredCurrencyCode);
+            subAmountText = isMe
+                ? 'Owed ${CurrencyFormatter.format(convertedAmount - convertedSplit, preferredCurrencyCode)}'
+                : 'You owe ${CurrencyFormatter.format(convertedSplit, preferredCurrencyCode)}';
+          }
           
           return GlassCard(
             margin: EdgeInsets.zero,
@@ -664,7 +706,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(e['description'] ?? 'Expense', style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 15)),
+                        Text(displayTitle, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 15)),
                         const SizedBox(height: 4),
                         Text.rich(
                           TextSpan(
@@ -683,10 +725,10 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text('₹${amount.toStringAsFixed(2)}', style: AppTheme.moneyStyle.copyWith(fontSize: 16, color: AppColors.textPrimary)),
+                      Text(formattedAmount, style: AppTheme.moneyStyle.copyWith(fontSize: 16, color: AppColors.textPrimary)),
                       const SizedBox(height: 4),
                       Text(
-                        isMe ? 'Owed ₹${(amount - splitShare).toStringAsFixed(1)}' : 'You owe ₹${splitShare.toStringAsFixed(1)}',
+                        subAmountText,
                         style: TextStyle(color: isMe ? AppColors.accentCyan : AppColors.accentRose, fontSize: 11, fontWeight: FontWeight.w600),
                       ),
                     ],
@@ -698,7 +740,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
         },
       );
     }
-
+ 
     return RefreshIndicator(
       color: AppColors.accentCyan,
       backgroundColor: AppColors.bgElevated,
@@ -707,7 +749,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
     );
   }
 
-  Widget _buildBalancesTab(Map<String, double> balances, List<Map<String, dynamic>> members, String currentUserId) {
+  Widget _buildBalancesTab(Map<String, double> balances, List<Map<String, dynamic>> members, String currentUserId, PreferencesState prefs, String preferredCurrencyCode) {
     final otherMembers = members.where((m) => m['user_id'] != currentUserId).toList();
     
     final Widget content;
@@ -747,6 +789,8 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
           final balance = balances[m['user_id']] ?? 0.0;
           final isOwedByThem = balance < 0; 
           
+          final preferredAbsBalance = prefs.convertFromBaseline(balance.abs());
+
           return GlassCard(
             margin: const EdgeInsets.only(bottom: 12),
             borderRadius: 16,
@@ -794,7 +838,9 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
                   Row(
                     children: [
                       Text(
-                        balance == 0 ? 'Settled' : '₹${balance.abs().toStringAsFixed(2)}', 
+                        balance == 0 
+                            ? 'Settled' 
+                            : CurrencyFormatter.format(preferredAbsBalance, preferredCurrencyCode), 
                         style: AppTheme.moneyStyle.copyWith(color: balance == 0 ? AppColors.textSecondary : (isOwedByThem ? AppColors.accentCyan : AppColors.accentRose), fontSize: 16),
                       ),
                       if (!isOwedByThem && balance != 0) ...[
@@ -1433,12 +1479,6 @@ class _IsolatedChatTabState extends ConsumerState<_IsolatedChatTab> {
   void dispose() {
     _chatController.dispose();
     super.dispose();
-  }
-
-  Future<void> _handleChatRefresh() async {
-    ref.invalidate(groupChatStreamProvider(widget.groupId));
-    ref.invalidate(reconciledChatStreamProvider(widget.groupId));
-    await Future.delayed(const Duration(milliseconds: 800));
   }
 
   Future<void> _sendMessage(String text) async {

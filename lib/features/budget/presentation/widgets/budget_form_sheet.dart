@@ -4,6 +4,8 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/widgets/custom_text_field.dart';
 import '../../../../shared/widgets/gradient_button.dart';
+import '../../../../core/utils/multi_currency_helper.dart';
+import '../../../../core/providers/preferences_provider.dart';
 import '../../data/budget_service.dart';
 
 class BudgetFormSheet extends ConsumerStatefulWidget {
@@ -44,8 +46,14 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
   @override
   void initState() {
     super.initState();
+    _amountController.addListener(() {
+      if (mounted) setState(() {});
+    });
     if (widget.budget != null) {
-      _amountController.text = widget.budget!['amount']?.toString() ?? '';
+      final baseAmount = double.tryParse(widget.budget!['amount']?.toString() ?? '0') ?? 0.0;
+      final notifier = ref.read(preferencesProvider.notifier);
+      final converted = notifier.convertFromBaseline(baseAmount);
+      _amountController.text = converted.toStringAsFixed(2);
       _selectedCategory = widget.budget!['category'] ?? 'Food & Dining';
       _selectedPeriod = widget.budget!['period'] ?? 'monthly';
     }
@@ -62,9 +70,16 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
 
     setState(() => _isLoading = true);
     try {
+      final prefState = ref.read(preferencesProvider);
+      final prefCurrency = supportedCurrencies[prefState.currencyIndex];
+      final notifier = ref.read(preferencesProvider.notifier);
+
+      final enteredAmount = double.tryParse(_amountController.text) ?? 0.0;
+      final baseAmount = notifier.convertToBaseline(enteredAmount, prefCurrency.code);
+
       final data = {
         'category': _selectedCategory,
-        'amount': double.tryParse(_amountController.text) ?? 0.0,
+        'amount': baseAmount,
         'period': _selectedPeriod,
       };
 
@@ -122,6 +137,19 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final prefState = ref.watch(preferencesProvider);
+    final prefCurrency = supportedCurrencies[prefState.currencyIndex];
+    final notifier = ref.read(preferencesProvider.notifier);
+
+    final amountText = _amountController.text;
+    final enteredAmount = double.tryParse(amountText) ?? 0.0;
+    String conversionLabel = '';
+
+    if (enteredAmount > 0 && prefCurrency.code != 'INR') {
+      final baseAmount = notifier.convertToBaseline(enteredAmount, prefCurrency.code);
+      conversionLabel = '≈ ${CurrencyFormatter.format(baseAmount, 'INR')}';
+    }
+
     return Container(
       padding: EdgeInsets.only(
         left: 24,
@@ -195,8 +223,22 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
               hint: '0.00',
               controller: _amountController,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              prefixIcon: const Icon(LucideIcons.indianRupee, color: AppColors.textTertiary, size: 18),
+              prefixIcon: Icon(prefCurrency.icon, color: AppColors.textTertiary, size: 18),
             ),
+            if (conversionLabel.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  conversionLabel,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textTertiary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 24),
 
             // Period Selection

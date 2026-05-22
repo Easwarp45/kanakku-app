@@ -4,6 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/database/supabase_service.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/database/local_cache_service.dart';
+import '../../../core/providers/preferences_provider.dart';
+import '../../../core/utils/multi_currency_helper.dart';
 
 final expenseServiceProvider = Provider<ExpenseService>((ref) {
   final client = ref.watch(supabaseClientProvider);
@@ -21,7 +23,7 @@ final expensesStreamProvider = StreamProvider<List<Map<String, dynamic>>>((ref) 
 final monthlyExpensesProvider = Provider<double>((ref) {
   final expensesAsync = ref.watch(expensesStreamProvider);
   final now = DateTime.now();
-  return expensesAsync.maybeWhen(
+  final rawAmount = expensesAsync.maybeWhen(
     data: (expenses) {
       return expenses
           .where((e) {
@@ -35,16 +37,24 @@ final monthlyExpensesProvider = Provider<double>((ref) {
     },
     orElse: () => 0.0,
   );
+  final pref = ref.watch(preferencesProvider);
+  final code = supportedCurrencies[pref.currencyIndex].code;
+  final rate = pref.rates[code] ?? 1.0;
+  return rawAmount * rate;
 });
 
 final totalExpensesProvider = Provider<double>((ref) {
   final expensesAsync = ref.watch(expensesStreamProvider);
-  return expensesAsync.maybeWhen(
+  final rawAmount = expensesAsync.maybeWhen(
     data: (expenses) {
       return expenses.fold<double>(0.0, (sum, e) => sum + _parseAmount(e['amount']));
     },
     orElse: () => 0.0,
   );
+  final pref = ref.watch(preferencesProvider);
+  final code = supportedCurrencies[pref.currencyIndex].code;
+  final rate = pref.rates[code] ?? 1.0;
+  return rawAmount * rate;
 });
 
 double _parseAmount(dynamic amount) {

@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
-import '../../../shared/widgets/glass_card.dart';
 import '../../../shared/widgets/app_bottom_nav.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
@@ -12,6 +11,8 @@ import '../../../core/database/local_cache_service.dart';
 import '../../expenses/data/expense_service.dart';
 import '../../income/data/income_service.dart';
 import '../../budget/data/budget_service.dart';
+import '../../../core/providers/preferences_provider.dart';
+import '../../../core/utils/multi_currency_helper.dart';
 
 class InsightsQuickStats {
   final int healthScore;
@@ -234,13 +235,13 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
     for (int i = 0; i < sorted.length - 1; i++) {
       final current = sorted[i];
       final amt = _parseAmount(current['amount']);
-      final desc = current['description']?.toString().trim().toLowerCase() ?? '';
+      final desc = MultiCurrencyData.cleanDescription(current['description']?.toString() ?? '').toLowerCase().trim();
       final date = DateTime.tryParse(current['expense_date']?.toString() ?? current['created_at']?.toString() ?? '') ?? DateTime(2000);
       if (desc.isEmpty || amt == 0) continue;
       for (int j = i + 1; j < sorted.length; j++) {
         final next = sorted[j];
         final nextAmt = _parseAmount(next['amount']);
-        final nextDesc = next['description']?.toString().trim().toLowerCase() ?? '';
+        final nextDesc = MultiCurrencyData.cleanDescription(next['description']?.toString() ?? '').toLowerCase().trim();
         final nextDate = DateTime.tryParse(next['expense_date']?.toString() ?? next['created_at']?.toString() ?? '') ?? DateTime(2000);
         if (nextDate.difference(date).inDays > 3) break;
         if (desc == nextDesc && amt == nextAmt) {
@@ -558,6 +559,12 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
   }
 
   Widget _buildOptionsGrid(BuildContext context, InsightsQuickStats stats) {
+    final prefs = ref.watch(preferencesProvider);
+    final code = supportedCurrencies[prefs.currencyIndex].code;
+    final notifier = ref.read(preferencesProvider.notifier);
+    final displayAmt = notifier.convertFromBaseline(stats.nextMonthForecast);
+    final formattedForecast = '${stats.nextMonthForecast >= 0 ? '+' : ''}${CurrencyFormatter.format(displayAmt, code)}';
+
     final List<_DashboardItem> allItems = [
       _DashboardItem(
         title: 'Health Score',
@@ -604,7 +611,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
         subtitle: 'Monthly forecasts',
         icon: LucideIcons.trendingUp,
         color: AppColors.accentCyan,
-        stat: '₹${stats.nextMonthForecast >= 0 ? '+' : ''}${stats.nextMonthForecast.toStringAsFixed(0)}',
+        stat: formattedForecast,
         builder: _buildPredictionModal,
       ),
       _DashboardItem(
@@ -1136,9 +1143,19 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                 color = AppColors.accentCyan;
               }
 
+              final prefs = ref.watch(preferencesProvider);
+              final code = supportedCurrencies[prefs.currencyIndex].code;
+              final notifier = ref.read(preferencesProvider.notifier);
+              final convertedVal = notifier.convertFromBaseline(entry.value);
+
               return Padding(
                 padding: const EdgeInsets.only(bottom: 16),
-                child: _buildDetailRow(entry.key, '₹${entry.value.toStringAsFixed(0)} (${pct.toStringAsFixed(0)}%)', icon, color),
+                child: _buildDetailRow(
+                  entry.key,
+                  '${CurrencyFormatter.format(convertedVal, code)} (${pct.toStringAsFixed(0)}%)',
+                  icon,
+                  color,
+                ),
               );
             }),
         ],
@@ -1196,6 +1213,14 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
           final formattedDate = DateFormat('EEEE, MMMM dd').format(selectedDate);
           final peakDayStr = maxSpendDay != null ? DateFormat('MMM dd').format(maxSpendDay) : 'N/A';
 
+          final prefs = ref.watch(preferencesProvider);
+          final code = supportedCurrencies[prefs.currencyIndex].code;
+          final notifier = ref.read(preferencesProvider.notifier);
+
+          final displayTotal = CurrencyFormatter.format(notifier.convertFromBaseline(totalPeriodSpend), code);
+          final displayAvg = CurrencyFormatter.format(notifier.convertFromBaseline(avgDailySpend), code);
+          final displayPeak = CurrencyFormatter.format(notifier.convertFromBaseline(maxDaySpend), code);
+
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1228,7 +1253,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                             children: [
                               const Text('Total Spent', style: TextStyle(color: AppColors.textTertiary, fontSize: 11)),
                               const SizedBox(height: 4),
-                              Text('₹${totalPeriodSpend.toStringAsFixed(0)}', style: AppTheme.moneyStyle.copyWith(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.bold)),
+                              Text(displayTotal, style: AppTheme.moneyStyle.copyWith(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.bold)),
                             ],
                           ),
                         ),
@@ -1238,7 +1263,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                             children: [
                               const Text('Daily Average', style: TextStyle(color: AppColors.textTertiary, fontSize: 11)),
                               const SizedBox(height: 4),
-                              Text('₹${avgDailySpend.toStringAsFixed(0)}', style: AppTheme.moneyStyle.copyWith(color: AppColors.textSecondary, fontSize: 15, fontWeight: FontWeight.bold)),
+                              Text(displayAvg, style: AppTheme.moneyStyle.copyWith(color: AppColors.textSecondary, fontSize: 15, fontWeight: FontWeight.bold)),
                             ],
                           ),
                         ),
@@ -1255,7 +1280,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                             children: [
                               const Text('Peak Day Spend', style: TextStyle(color: AppColors.textTertiary, fontSize: 11)),
                               const SizedBox(height: 4),
-                              Text('₹${maxDaySpend.toStringAsFixed(0)} ($peakDayStr)', style: AppTheme.moneyStyle.copyWith(color: AppColors.accentRose, fontSize: 14, fontWeight: FontWeight.bold)),
+                              Text('$displayPeak ($peakDayStr)', style: AppTheme.moneyStyle.copyWith(color: AppColors.accentRose, fontSize: 14, fontWeight: FontWeight.bold)),
                             ],
                           ),
                         ),
@@ -1405,7 +1430,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                     ),
                   ),
                   Text(
-                    '₹${selectedSpent.toStringAsFixed(0)}',
+                    CurrencyFormatter.format(notifier.convertFromBaseline(selectedSpent), code),
                     style: AppTheme.moneyStyle.copyWith(
                       color: selectedSpent > 0 ? AppColors.accentRose : AppColors.textSecondary,
                       fontSize: 20,
@@ -1443,7 +1468,9 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                   itemBuilder: (context, idx) {
                     final item = selectedList[idx];
                     final amt = _parseAmount(item['amount']);
-                    final desc = item['description'] ?? 'Expense';
+                    final rawDesc = item['description'] ?? 'Expense';
+                    final cleanGroup = rawDesc.toString().replaceFirst(RegExp(r'^\[GroupExpense:[^\]]+\]\s*'), '').trim();
+                    final desc = MultiCurrencyData.cleanDescription(cleanGroup);
                     final category = item['category'] ?? 'Other';
                     
                     IconData icon = LucideIcons.shoppingBag;
@@ -1464,6 +1491,21 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                     } else if (lowerCat.contains('shopping')) {
                       icon = LucideIcons.shoppingCart;
                       color = AppColors.accentCyan;
+                    }
+
+                    final itemMc = MultiCurrencyData.parse(rawDesc.toString());
+                    String formattedAmount = '';
+                    String sublabel = '';
+
+                    if (itemMc != null) {
+                      formattedAmount = '-${CurrencyFormatter.format(itemMc.amount, itemMc.currency)}';
+                      if (code != itemMc.currency) {
+                        final preferredVal = notifier.convertFromBaseline(amt);
+                        sublabel = '≈ -${CurrencyFormatter.format(preferredVal, code)}';
+                      }
+                    } else {
+                      final converted = notifier.convertFromBaseline(amt);
+                      formattedAmount = '-${CurrencyFormatter.format(converted, code)}';
                     }
 
                     return Container(
@@ -1510,13 +1552,31 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                               ],
                             ),
                           ),
-                          Text(
-                            '-₹${amt.toStringAsFixed(0)}',
-                            style: AppTheme.moneyStyle.copyWith(
-                              color: AppColors.textPrimary,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          const SizedBox(width: 8),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                formattedAmount,
+                                style: AppTheme.moneyStyle.copyWith(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              if (sublabel.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  sublabel,
+                                  style: const TextStyle(
+                                    color: AppColors.textTertiary,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ],
                       ),
@@ -1609,10 +1669,14 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
           return da.compareTo(db);
         });
 
+      final prefs = ref.watch(preferencesProvider);
+      final code = supportedCurrencies[prefs.currencyIndex].code;
+      final notifier = ref.read(preferencesProvider.notifier);
+
       for (int i = 0; i < sorted.length - 1; i++) {
         final current = sorted[i];
         final amt = _parseAmount(current['amount']);
-        final desc = current['description']?.toString().trim().toLowerCase() ?? '';
+        final desc = MultiCurrencyData.cleanDescription(current['description']?.toString() ?? '').toLowerCase().trim();
         final date = DateTime.tryParse(current['expense_date']?.toString() ?? current['created_at']?.toString() ?? '') ?? DateTime(2000);
 
         if (desc.isEmpty || amt == 0) continue;
@@ -1620,15 +1684,16 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
         for (int j = i + 1; j < sorted.length; j++) {
           final next = sorted[j];
           final nextAmt = _parseAmount(next['amount']);
-          final nextDesc = next['description']?.toString().trim().toLowerCase() ?? '';
+          final nextDesc = MultiCurrencyData.cleanDescription(next['description']?.toString() ?? '').toLowerCase().trim();
           final nextDate = DateTime.tryParse(next['expense_date']?.toString() ?? next['created_at']?.toString() ?? '') ?? DateTime(2000);
 
           if (nextDate.difference(date).inDays > 3) break;
 
           if (desc == nextDesc && amt == nextAmt) {
+            final displayAmt = CurrencyFormatter.format(notifier.convertFromBaseline(amt), code);
             insights.add(_buildInsightCard(
               'Duplicate Charge Detected',
-              'You paid ₹${amt.toStringAsFixed(0)} for "${current['description']}" twice within 3 days. Check if this is an error.',
+              'You paid $displayAmt for "${MultiCurrencyData.cleanDescription(current['description'] ?? '')}" twice within 3 days. Check if this is an error.',
               LucideIcons.copy,
               AppColors.accentRose,
             ));
@@ -1667,9 +1732,11 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
       for (final e in currentMonthExpenses) {
         final amt = _parseAmount(e['amount']);
         if (amt > 3 * avgExpense && amt > 3000) {
+          final displayAmt = CurrencyFormatter.format(notifier.convertFromBaseline(amt), code);
+          final displayAvg = CurrencyFormatter.format(notifier.convertFromBaseline(avgExpense), code);
           insights.add(_buildInsightCard(
-            'Large Single Outlay',
-            'Your purchase of "${e['description']}" for ₹${amt.toStringAsFixed(0)} is significantly larger than your average transaction of ₹${avgExpense.toStringAsFixed(0)}.',
+            'Large Single Outflow',
+            'Your purchase of "${MultiCurrencyData.cleanDescription(e['description'] ?? '')}" for $displayAmt is significantly larger than your average transaction of $displayAvg.',
             LucideIcons.zap,
             AppColors.accentAmber,
           ));
@@ -1755,11 +1822,11 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
         children: [
           const Text('Based on historical monthly transaction averages, here is your projected cash flow for next month.', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.4)),
           const SizedBox(height: 24),
-          _buildDetailRow('Expected Income', '₹${avgIncome.toStringAsFixed(0)}', LucideIcons.arrowDownLeft, AppColors.accentEmerald),
+          _buildDetailRow('Expected Income', CurrencyFormatter.format(ref.read(preferencesProvider.notifier).convertFromBaseline(avgIncome), supportedCurrencies[ref.read(preferencesProvider).currencyIndex].code), LucideIcons.arrowDownLeft, AppColors.accentEmerald),
           const SizedBox(height: 16),
-          _buildDetailRow('Predicted Expenses', '₹${avgExpense.toStringAsFixed(0)}', LucideIcons.arrowUpRight, AppColors.accentRose),
+          _buildDetailRow('Predicted Expenses', CurrencyFormatter.format(ref.read(preferencesProvider.notifier).convertFromBaseline(avgExpense), supportedCurrencies[ref.read(preferencesProvider).currencyIndex].code), LucideIcons.arrowUpRight, AppColors.accentRose),
           const SizedBox(height: 16),
-          _buildDetailRow('Estimated Savings', '₹${predictedSavings.toStringAsFixed(0)}', LucideIcons.piggyBank, AppColors.accentCyan),
+          _buildDetailRow('Estimated Savings', CurrencyFormatter.format(ref.read(preferencesProvider.notifier).convertFromBaseline(predictedSavings), supportedCurrencies[ref.read(preferencesProvider).currencyIndex].code), LucideIcons.piggyBank, AppColors.accentCyan),
         ],
       );
     });
@@ -1773,11 +1840,16 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
 
       final recommendations = <Widget>[];
 
+      final prefs = ref.watch(preferencesProvider);
+      final code = supportedCurrencies[prefs.currencyIndex].code;
+      final notifier = ref.read(preferencesProvider.notifier);
       if (cashReserve > 15000) {
-        final investAmt = (cashReserve * 0.4).toStringAsFixed(0);
+        final displayReserve = CurrencyFormatter.format(notifier.convertFromBaseline(cashReserve), code);
+        final displayInvest = CurrencyFormatter.format(notifier.convertFromBaseline(cashReserve * 0.4), code);
+        final displayReturn = CurrencyFormatter.format(notifier.convertFromBaseline(cashReserve * 0.06), code);
         recommendations.add(_buildInsightCard(
           'Invest Idle Cash',
-          'You have accumulated ₹${cashReserve.toStringAsFixed(0)} in reserves. Allocating ₹$investAmt into a liquid mutual fund could yield up to ₹${(cashReserve * 0.06).toStringAsFixed(0)} in annual returns.',
+          'You have accumulated $displayReserve in reserves. Allocating $displayInvest into a liquid mutual fund could yield up to $displayReturn in annual returns.',
           LucideIcons.trendingUp,
           AppColors.accentEmerald,
         ));
@@ -1883,9 +1955,14 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
         if (cat.isNotEmpty && limit > 0) {
           final spent = categoryExpenses[cat] ?? 0.0;
           if (spent > limit) {
+            final prefs = ref.watch(preferencesProvider);
+            final code = supportedCurrencies[prefs.currencyIndex].code;
+            final notifier = ref.read(preferencesProvider.notifier);
+            final displaySpent = CurrencyFormatter.format(notifier.convertFromBaseline(spent), code);
+            final displayLimit = CurrencyFormatter.format(notifier.convertFromBaseline(limit), code);
             alerts.add(_buildInsightCard(
               'Budget Limits Exceeded',
-              'Your spending in "${b['category']}" is ₹${spent.toStringAsFixed(0)}, which exceeds the configured limit of ₹${limit.toStringAsFixed(0)}.',
+              'Your spending in "${b['category']}" is $displaySpent, which exceeds the configured limit of $displayLimit.',
               LucideIcons.alertOctagon,
               AppColors.accentRose,
             ));
@@ -1897,9 +1974,14 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
       for (final e in monthlyExpensesList) {
         final amt = _parseAmount(e['amount']);
         if (amt >= 10000.0) {
+          final prefs = ref.watch(preferencesProvider);
+          final code = supportedCurrencies[prefs.currencyIndex].code;
+          final notifier = ref.read(preferencesProvider.notifier);
+          final displayAmt = CurrencyFormatter.format(notifier.convertFromBaseline(amt), code);
+          final cleanDesc = MultiCurrencyData.cleanDescription(e['description'] ?? '');
           alerts.add(_buildInsightCard(
             'Large Single Outflow',
-            'A single large transaction of ₹${amt.toStringAsFixed(0)} for "${e['description']}" was posted this month. Please audit.',
+            'A single large transaction of $displayAmt for "$cleanDesc" was posted this month. Please audit.',
             LucideIcons.alertTriangle,
             AppColors.accentAmber,
           ));
@@ -1952,13 +2034,26 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
           const SizedBox(height: 24),
           ...subs.map((sub) {
             final amt = _parseAmount(sub['amount']);
-            final title = sub['description'] ?? 'Recurring Charge';
+            final rawDesc = sub['description'] ?? 'Recurring Charge';
+            final title = MultiCurrencyData.cleanDescription(rawDesc);
             Color color = AppColors.accentCyan;
-            final lowerTitle = title.toString().toLowerCase();
+            final lowerTitle = title.toLowerCase();
 
             if (lowerTitle.contains('netflix')) color = AppColors.accentRose;
             else if (lowerTitle.contains('spotify')) color = AppColors.accentEmerald;
             else if (lowerTitle.contains('prime') || lowerTitle.contains('amazon')) color = AppColors.accentCyan;
+
+            final prefs = ref.watch(preferencesProvider);
+            final code = supportedCurrencies[prefs.currencyIndex].code;
+            final notifier = ref.read(preferencesProvider.notifier);
+            final subMc = MultiCurrencyData.parse(rawDesc);
+
+            String displayPrice = '';
+            if (subMc != null) {
+              displayPrice = '${CurrencyFormatter.format(subMc.amount, subMc.currency)}/mo';
+            } else {
+              displayPrice = '${CurrencyFormatter.format(notifier.convertFromBaseline(amt), code)}/mo';
+            }
 
             return Padding(
               padding: const EdgeInsets.only(bottom: 16),
@@ -1976,7 +2071,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(title, style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
-                        Text('₹${amt.toStringAsFixed(0)}/mo', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                        Text(displayPrice, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
                       ],
                     ),
                   ),
@@ -1987,7 +2082,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                         builder: (context) => AlertDialog(
                           backgroundColor: AppColors.bgElevated,
                           title: const Text('Delete Subscription Transaction', style: TextStyle(color: AppColors.textPrimary)),
-                          content: Text('Are you sure you want to delete the transaction "$title" for ₹${amt.toStringAsFixed(0)}? This will remove it from database.', style: const TextStyle(color: AppColors.textSecondary)),
+                          content: Text('Are you sure you want to delete the transaction "$title" for $displayPrice? This will remove it from database.', style: const TextStyle(color: AppColors.textSecondary)),
                           actions: [
                             TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary))),
                             TextButton(
@@ -2069,7 +2164,10 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(cat, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 15)),
-                    Text('₹${spent.toStringAsFixed(0)} / ₹${limit.toStringAsFixed(0)} ($pct%)', style: TextStyle(color: color, fontWeight: FontWeight.w700)),
+                    Text(
+                      '${CurrencyFormatter.format(ref.read(preferencesProvider.notifier).convertFromBaseline(spent), supportedCurrencies[ref.read(preferencesProvider).currencyIndex].code)} / ${CurrencyFormatter.format(ref.read(preferencesProvider.notifier).convertFromBaseline(limit), supportedCurrencies[ref.read(preferencesProvider).currencyIndex].code)} ($pct%)',
+                      style: TextStyle(color: color, fontWeight: FontWeight.w700),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -2122,7 +2220,12 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
               ? 'You are in a healthy savings bracket! Keep it up!'
               : 'Try keeping your expenses under 80% of income to improve savings.', style: const TextStyle(color: AppColors.textSecondary)),
           const SizedBox(height: 32),
-          _buildDetailRow('Cash Reserve Buffer', '₹${reserves.toStringAsFixed(0)}', LucideIcons.shieldCheck, AppColors.accentCyan),
+          _buildDetailRow(
+            'Cash Reserve Buffer',
+            CurrencyFormatter.format(ref.read(preferencesProvider.notifier).convertFromBaseline(reserves), supportedCurrencies[ref.read(preferencesProvider).currencyIndex].code),
+            LucideIcons.shieldCheck,
+            AppColors.accentCyan,
+          ),
           const SizedBox(height: 16),
           _buildDetailRow('Emergency Runway', '${runway.toStringAsFixed(1)} Month(s)', LucideIcons.trendingUp, AppColors.accentPurple),
         ],
@@ -2170,7 +2273,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
 
       final recapText = monthlyIncome > 0 || monthlyExpense > 0
           ? 'You started $monthName strong, achieving a $savingsPct% savings rate. '
-              '${topCat != 'none' ? "Your largest spending sector was \"$topCat\" costing ₹${maxAmt.toStringAsFixed(0)}." : ""} '
+              '${topCat != 'none' ? "Your largest spending sector was \"$topCat\" costing ${CurrencyFormatter.format(ref.read(preferencesProvider.notifier).convertFromBaseline(maxAmt), supportedCurrencies[ref.read(preferencesProvider).currencyIndex].code)}." : ""} '
               'Overall, your balance remained ${savingsRate >= 0.20 ? "highly secure" : "tightly buffered"}.'
           : 'You haven\'t recorded any income or expense transactions in $monthName yet. Record some bills to craft your financial story!';
 
@@ -2380,7 +2483,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
   List<Map<String, dynamic>> _detectSubscriptions(List<Map<String, dynamic>> expenses) {
     final keywords = ['spotify', 'netflix', 'youtube', 'prime', 'gym', 'rent', 'broadband', 'adobe'];
     return expenses.where((e) {
-      final desc = e['description']?.toString().toLowerCase() ?? '';
+      final desc = MultiCurrencyData.cleanDescription(e['description']?.toString() ?? '').toLowerCase();
       return keywords.any((kw) => desc.contains(kw));
     }).toList();
   }
@@ -2412,12 +2515,25 @@ class GoalsManagerWidget extends ConsumerStatefulWidget {
 }
 
 class _GoalsManagerWidgetState extends ConsumerState<GoalsManagerWidget> {
-  void _addGoal(String name, double target, double current) {
-    ref.read(localGoalsProvider.notifier).addGoal(name, target, current);
+  void _addGoal(String name, double targetInPref, double currentInPref) {
+    final prefs = ref.read(preferencesProvider);
+    final prefCurrency = supportedCurrencies[prefs.currencyIndex];
+    final notifier = ref.read(preferencesProvider.notifier);
+    
+    final targetBaseline = notifier.convertToBaseline(targetInPref, prefCurrency.code);
+    final currentBaseline = notifier.convertToBaseline(currentInPref, prefCurrency.code);
+    
+    ref.read(localGoalsProvider.notifier).addGoal(name, targetBaseline, currentBaseline);
   }
 
-  void _updateGoalProgress(String id, double progress) {
-    ref.read(localGoalsProvider.notifier).updateGoalProgress(id, progress);
+  void _updateGoalProgress(String id, double progressInPref) {
+    final prefs = ref.read(preferencesProvider);
+    final prefCurrency = supportedCurrencies[prefs.currencyIndex];
+    final notifier = ref.read(preferencesProvider.notifier);
+    
+    final progressBaseline = notifier.convertToBaseline(progressInPref, prefCurrency.code);
+    
+    ref.read(localGoalsProvider.notifier).updateGoalProgress(id, progressBaseline);
   }
 
   void _deleteGoal(String id) {
@@ -2433,6 +2549,9 @@ class _GoalsManagerWidgetState extends ConsumerState<GoalsManagerWidget> {
     final nameController = TextEditingController();
     final targetController = TextEditingController();
     final currentController = TextEditingController();
+
+    final prefs = ref.read(preferencesProvider);
+    final prefCurrency = supportedCurrencies[prefs.currencyIndex];
 
     showDialog(
       context: context,
@@ -2458,11 +2577,11 @@ class _GoalsManagerWidgetState extends ConsumerState<GoalsManagerWidget> {
                 controller: targetController,
                 keyboardType: TextInputType.number,
                 style: const TextStyle(color: AppColors.textPrimary),
-                decoration: const InputDecoration(
-                  labelText: 'Target Amount (₹)',
-                  labelStyle: TextStyle(color: AppColors.textSecondary),
-                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: AppColors.borderSubtle)),
-                  focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: AppColors.accentCyan)),
+                decoration: InputDecoration(
+                  labelText: 'Target Amount (${prefCurrency.symbol})',
+                  labelStyle: const TextStyle(color: AppColors.textSecondary),
+                  enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: AppColors.borderSubtle)),
+                  focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: AppColors.accentCyan)),
                 ),
               ),
               const SizedBox(height: 16),
@@ -2470,11 +2589,11 @@ class _GoalsManagerWidgetState extends ConsumerState<GoalsManagerWidget> {
                 controller: currentController,
                 keyboardType: TextInputType.number,
                 style: const TextStyle(color: AppColors.textPrimary),
-                decoration: const InputDecoration(
-                  labelText: 'Current Saved Amount (₹)',
-                  labelStyle: TextStyle(color: AppColors.textSecondary),
-                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: AppColors.borderSubtle)),
-                  focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: AppColors.accentCyan)),
+                decoration: InputDecoration(
+                  labelText: 'Current Saved Amount (${prefCurrency.symbol})',
+                  labelStyle: const TextStyle(color: AppColors.textSecondary),
+                  enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: AppColors.borderSubtle)),
+                  focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: AppColors.accentCyan)),
                 ),
               ),
             ],
@@ -2503,7 +2622,13 @@ class _GoalsManagerWidgetState extends ConsumerState<GoalsManagerWidget> {
   }
 
   void _showUpdateProgressDialog(Map<String, dynamic> goal) {
-    final currentController = TextEditingController(text: goal['currentAmount']?.toString() ?? '0');
+    final prefs = ref.read(preferencesProvider);
+    final prefCurrency = supportedCurrencies[prefs.currencyIndex];
+    final notifier = ref.read(preferencesProvider.notifier);
+
+    final currentBaseline = _parseAmount(goal['currentAmount']);
+    final currentInPref = notifier.convertFromBaseline(currentBaseline);
+    final currentController = TextEditingController(text: currentInPref.toStringAsFixed(prefCurrency.code == 'JPY' ? 0 : 2));
 
     showDialog(
       context: context,
@@ -2514,11 +2639,11 @@ class _GoalsManagerWidgetState extends ConsumerState<GoalsManagerWidget> {
           controller: currentController,
           keyboardType: TextInputType.number,
           style: const TextStyle(color: AppColors.textPrimary),
-          decoration: const InputDecoration(
-            labelText: 'New Saved Amount (₹)',
-            labelStyle: TextStyle(color: AppColors.textSecondary),
-            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: AppColors.borderSubtle)),
-            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: AppColors.accentCyan)),
+          decoration: InputDecoration(
+            labelText: 'New Saved Amount (${prefCurrency.symbol})',
+            labelStyle: const TextStyle(color: AppColors.textSecondary),
+            enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: AppColors.borderSubtle)),
+            focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: AppColors.accentCyan)),
           ),
         ),
         actions: [
@@ -2568,8 +2693,16 @@ class _GoalsManagerWidgetState extends ConsumerState<GoalsManagerWidget> {
     return Column(
       children: [
         ...goals.map((g) {
-          final target = _parseAmount(g['targetAmount']);
-          final current = _parseAmount(g['currentAmount']);
+          final targetBaseline = _parseAmount(g['targetAmount']);
+          final currentBaseline = _parseAmount(g['currentAmount']);
+
+          final prefs = ref.watch(preferencesProvider);
+          final code = supportedCurrencies[prefs.currencyIndex].code;
+          final notifier = ref.read(preferencesProvider.notifier);
+
+          final target = notifier.convertFromBaseline(targetBaseline);
+          final current = notifier.convertFromBaseline(currentBaseline);
+
           final fill = target > 0 ? (current / target).clamp(0.0, 1.0) : 0.0;
           final pct = (fill * 100).toStringAsFixed(0);
 
@@ -2607,7 +2740,10 @@ class _GoalsManagerWidgetState extends ConsumerState<GoalsManagerWidget> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('₹${current.toStringAsFixed(0)} / ₹${target.toStringAsFixed(0)}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+                    Text(
+                      '${CurrencyFormatter.format(current, code)} / ${CurrencyFormatter.format(target, code)}',
+                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
+                    ),
                     Text('$pct%', style: const TextStyle(color: AppColors.accentCyan, fontWeight: FontWeight.bold)),
                   ],
                 ),
