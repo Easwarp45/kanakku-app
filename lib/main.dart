@@ -12,6 +12,8 @@ import 'core/logging/app_logger.dart';
 import 'core/ui/global_error_handler.dart';
 import 'core/feature_flags/feature_flags.dart';
 import 'core/providers/preferences_provider.dart';
+import 'core/providers/auth_provider.dart';
+import 'features/auth/presentation/passcode_screen.dart';
 
 Future<void> main() async {
   // Protect the entire app in a zone so unhandled async errors are caught
@@ -132,9 +134,71 @@ class KanakkuApp extends ConsumerWidget {
         Locale('en'),
         Locale('es'),
       ],
-      builder: (context, child) =>
-          GlobalErrorListener(child: child ?? const SizedBox()),
+      builder: (context, child) => AppLockLifecycleWrapper(
+        child: GlobalErrorListener(child: child ?? const SizedBox()),
+      ),
       debugShowCheckedModeBanner: false,
     );
+  }
+}
+
+class AppLockLifecycleWrapper extends ConsumerStatefulWidget {
+  final Widget child;
+  const AppLockLifecycleWrapper({super.key, required this.child});
+
+  @override
+  ConsumerState<AppLockLifecycleWrapper> createState() => _AppLockLifecycleWrapperState();
+}
+
+class _AppLockLifecycleWrapperState extends ConsumerState<AppLockLifecycleWrapper> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      // App went to background, require lock on next resume
+      ref.read(sessionLockProvider.notifier).setLock(true);
+    } else if (state == AppLifecycleState.resumed) {
+      _checkLock();
+    }
+  }
+
+  void _checkLock() {
+    final router = ref.read(routerProvider);
+    final prefs = ref.read(preferencesProvider);
+    final user = ref.read(currentUserProvider);
+    
+    // Check if user is logged in, appLock is enabled, passcode PIN is configured,
+    // and sessionLockProvider is true (needs verification)
+    if (user != null && prefs.appLock && prefs.passcodePin.isNotEmpty) {
+      final isLocked = ref.read(sessionLockProvider);
+      if (isLocked) {
+        final routeInfo = router.routerDelegate.currentConfiguration;
+        final currentPath = routeInfo.uri.path;
+        
+        // Avoid redirecting if already on splash, login, signup, or passcode screen
+        if (currentPath != '/passcode' &&
+            currentPath != '/splash' &&
+            currentPath != '/login' &&
+            currentPath != '/signup') {
+          router.go('/passcode', extra: {'mode': PasscodeMode.unlock});
+        }
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.child;
   }
 }

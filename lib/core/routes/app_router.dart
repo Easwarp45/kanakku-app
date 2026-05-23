@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/auth/presentation/splash_screen.dart';
+import '../../features/auth/presentation/passcode_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/signup_screen.dart';
 import '../../features/dashboard/presentation/dashboard_screen.dart';
@@ -50,6 +51,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       // Auth
       GoRoute(path: '/login', pageBuilder: (context, state) => _buildPage(state, const LoginScreen())),
       GoRoute(path: '/signup', pageBuilder: (context, state) => _buildPage(state, const SignupScreen())),
+      GoRoute(
+        path: '/passcode',
+        pageBuilder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>?;
+          final mode = extra?['mode'] as PasscodeMode? ?? PasscodeMode.unlock;
+          final onSuccess = extra?['onSuccess'] as VoidCallback?;
+          return _buildPage(state, PasscodeScreen(mode: mode, onSuccess: onSuccess));
+        },
+      ),
 
       // Dashboard
       GoRoute(path: '/dashboard', pageBuilder: (context, state) => _buildPage(state, const DashboardScreen())),

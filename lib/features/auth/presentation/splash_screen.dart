@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/database/local_cache_service.dart';
+import 'passcode_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Splash Screen Entry Point
@@ -170,7 +171,20 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
         LocalCacheService.cacheData('is_logged_in', true);
       }
       if (mounted) {
-        context.go((isLoggedIn || user != null) ? '/dashboard' : '/login');
+        if (isLoggedIn || user != null) {
+          final userId = user?.id ?? 'guest';
+          final appLockEnabled = LocalCacheService.getCachedData('pref_${userId}_appLock') == true;
+          final passcodePin = LocalCacheService.getCachedData('pref_${userId}_passcodePin') as String? ?? '';
+          if (appLockEnabled && passcodePin.isNotEmpty) {
+            ref.read(sessionLockProvider.notifier).setLock(true);
+            context.go('/passcode', extra: {'mode': PasscodeMode.unlock});
+          } else {
+            ref.read(sessionLockProvider.notifier).setLock(false);
+            context.go('/dashboard');
+          }
+        } else {
+          context.go('/login');
+        }
       }
     } catch (e) {
       debugPrint('[SPLASH ERROR] Supabase auth check failed (falling back to login): $e');

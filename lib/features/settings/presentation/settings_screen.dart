@@ -13,6 +13,10 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/preferences_provider.dart';
 import '../../../core/database/local_cache_service.dart';
 import '../../../core/utils/multi_currency_helper.dart';
+import '../../../core/database/supabase_service.dart';
+import '../../auth/presentation/passcode_screen.dart';
+import '../../expenses/data/expense_service.dart';
+import '../../income/data/income_service.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -33,10 +37,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             SliverToBoxAdapter(child: _buildProfileBanner(context)),
             SliverToBoxAdapter(child: const SizedBox(height: 24)),
             SliverToBoxAdapter(child: _buildSection('Preferences', _buildPreferencesItems())),
-            SliverToBoxAdapter(child: _buildSection('Categories & Budgets', _buildCategoryItems(context))),
-            SliverToBoxAdapter(child: _buildSection('Groups', _buildGroupsItems(context))),
-            SliverToBoxAdapter(child: _buildSection('Data & Security', _buildDataSecurityItems())),
-            SliverToBoxAdapter(child: _buildSection('Support & About', _buildSupportItems())),
+            SliverToBoxAdapter(child: _buildSection('Security & Data', _buildDataSecurityItems())),
+            SliverToBoxAdapter(child: _buildSection('Support', _buildSupportItems())),
             SliverToBoxAdapter(child: const SizedBox(height: 12)),
             SliverToBoxAdapter(
               child: Padding(
@@ -160,125 +162,68 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final month = months[dt.month - 1];
       final hour = dt.hour.toString().padLeft(2, '0');
       final minute = dt.minute.toString().padLeft(2, '0');
-      return 'Synced: $day $month, $hour:$minute';
+      return 'Synced $day $month, $hour:$minute';
     }
 
     return [
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        child: Row(
-          children: [
-            Icon(activeCurrency.icon, color: AppColors.accentEmerald, size: 22),
-            const SizedBox(width: 14),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Base Currency', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w500)),
-                ],
-              ),
-            ),
-            TextButton(
-              onPressed: () => _showPickerSheet(
-                context,
-                'Currency',
-                currencies,
-                prefs.currencyIndex,
-                (i) => ref.read(preferencesProvider.notifier).updateCurrencyIndex(i),
-              ),
-              child: Text(currencies[prefs.currencyIndex], style: const TextStyle(color: AppColors.textPrimary, fontSize: 13)),
-            ),
-          ],
+      _buildSettingsTile(
+        activeCurrency.icon,
+        'Base Currency',
+        '${currencies[prefs.currencyIndex]} • ${formatLastUpdate(prefs.lastRatesUpdate)}',
+        AppColors.accentEmerald,
+        onTap: () => _showPickerSheet(
+          context,
+          'Currency',
+          currencies,
+          prefs.currencyIndex,
+          (i) => ref.read(preferencesProvider.notifier).updateCurrencyIndex(i),
         ),
       ),
       Divider(color: AppColors.borderSubtle, height: 1),
       _buildSettingsTile(
-        LucideIcons.refreshCw,
-        'Exchange Rates',
-        prefs.isLoadingRates
-            ? 'Syncing live rates...'
-            : (prefs.ratesError ?? formatLastUpdate(prefs.lastRatesUpdate)),
-        prefs.ratesError != null ? AppColors.accentRose : AppColors.accentCyan,
-        trailing: prefs.isLoadingRates
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accentCyan),
-              )
-            : IconButton(
-                icon: const Icon(LucideIcons.refreshCw, size: 18, color: AppColors.accentCyan),
-                onPressed: () async {
-                  await ref.read(preferencesProvider.notifier).fetchRates(force: true);
-                  if (context.mounted) {
-                    final updatedPrefs = ref.read(preferencesProvider);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(updatedPrefs.ratesError ?? 'Exchange rates synced successfully!'),
-                        backgroundColor: updatedPrefs.ratesError != null ? AppColors.accentRose : AppColors.accentEmerald,
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                    );
-                  }
-                },
-              ),
-      ),
-      Divider(color: AppColors.borderSubtle, height: 1),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        child: Row(
-          children: [
-            const Icon(LucideIcons.palette, color: AppColors.accentCyan, size: 22),
-            const SizedBox(width: 14),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('App Theme', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w500)),
-                ],
-              ),
-            ),
-            TextButton(
-              onPressed: () => _showPickerSheet(
-                context,
-                'Theme',
-                themes,
-                prefs.themeIndex,
-                (i) => ref.read(preferencesProvider.notifier).updateThemeIndex(i),
-              ),
-              child: Text(themes[prefs.themeIndex], style: const TextStyle(color: AppColors.textPrimary, fontSize: 13)),
-            ),
-          ],
+        LucideIcons.palette,
+        'App Theme',
+        themes[prefs.themeIndex],
+        AppColors.accentCyan,
+        onTap: () => _showPickerSheet(
+          context,
+          'Theme',
+          themes,
+          prefs.themeIndex,
+          (i) => ref.read(preferencesProvider.notifier).updateThemeIndex(i),
         ),
       ),
       Divider(color: AppColors.borderSubtle, height: 1),
       _buildSettingsTile(
         LucideIcons.bellRing,
         'Daily Reminder',
-        'Remind to log expenses',
+        prefs.dailyReminders
+            ? 'Scheduled daily at ${_formatReminderTime(prefs.reminderTime)}'
+            : 'Notification reminder to log expenses',
         AppColors.accentPurple,
+        onTap: prefs.dailyReminders ? _pickReminderTime : null,
         trailing: Switch(
           value: prefs.dailyReminders,
-          onChanged: (v) => ref.read(preferencesProvider.notifier).updateDailyReminders(v),
+          onChanged: (v) async {
+            await ref.read(preferencesProvider.notifier).updateDailyReminders(v);
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(v 
+                    ? 'Daily reminder scheduled for ${_formatReminderTime(prefs.reminderTime)}!' 
+                    : 'Daily reminders deactivated.'),
+                  backgroundColor: v ? AppColors.accentEmerald : AppColors.textSecondary,
+                  duration: const Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              );
+            }
+          },
           activeThumbColor: AppColors.accentCyan,
+          activeTrackColor: AppColors.accentCyan.withValues(alpha: 0.2),
         ),
       ),
-    ];
-  }
-
-  List<Widget> _buildCategoryItems(BuildContext context) {
-    return [
-      _buildSettingsTile(LucideIcons.tags, 'Manage Categories', 'Add/edit expense tags', AppColors.accentEmerald, onTap: () {}),
-      Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.target, 'Budget Limits', 'Set monthly caps', AppColors.accentCyan, onTap: () => context.push('/budget')),
-    ];
-  }
-
-  List<Widget> _buildGroupsItems(BuildContext context) {
-    return [
-      _buildSettingsTile(LucideIcons.users, 'Manage Groups', 'View active groups', AppColors.accentPurple, onTap: () => context.push('/groups')),
-      Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.gitMerge, 'Default Split Rule', 'Currently: Equal Split', AppColors.accentCyan, onTap: () {}),
     ];
   }
 
@@ -289,68 +234,130 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _buildSettingsTile(
         LucideIcons.fingerprint,
         'App Lock',
-        'Biometric security',
+        prefs.appLock ? 'Protected with 4-digit PIN' : 'Secure database with passcode PIN',
         AppColors.accentCyan,
         trailing: Switch(
           value: prefs.appLock,
-          onChanged: (v) => ref.read(preferencesProvider.notifier).updateAppLock(v),
+          onChanged: (v) {
+            if (v) {
+              context.push(
+                '/passcode',
+                extra: {
+                  'mode': PasscodeMode.setup,
+                  'onSuccess': () async {
+                    await ref.read(preferencesProvider.notifier).updateAppLock(true);
+                    if (mounted) {
+                      context.pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Text('App Lock enabled with passcode PIN!'),
+                          backgroundColor: AppColors.accentEmerald,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      );
+                    }
+                  }
+                },
+              );
+            } else {
+              context.push(
+                '/passcode',
+                extra: {
+                  'mode': PasscodeMode.verifyDisable,
+                  'onSuccess': () async {
+                    await ref.read(preferencesProvider.notifier).updateAppLock(false);
+                    if (mounted) {
+                      context.pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Text('App Lock disabled.'),
+                          backgroundColor: AppColors.textSecondary,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      );
+                    }
+                  }
+                },
+              );
+            }
+          },
           activeThumbColor: AppColors.accentCyan,
+          activeTrackColor: AppColors.accentCyan.withValues(alpha: 0.2),
         ),
       ),
       Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.cloudLightning, 'Cloud Backup', 'Sync data to cloud', AppColors.accentEmerald, onTap: _runCloudBackup),
+      _buildSettingsTile(
+        LucideIcons.creditCard,
+        'UPI Payment Accounts',
+        'Link banks and view quick-receive QR codes',
+        AppColors.accentCyan,
+        onTap: () => context.push('/upi'),
+      ),
       Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.download, 'Export Data', 'Download CSV report', AppColors.accentPurple, onTap: _exportData),
+      _buildSettingsTile(
+        LucideIcons.cloudLightning,
+        'Cloud Backup & Sync',
+        'Sync ledger database safely to Supabase',
+        AppColors.accentEmerald,
+        onTap: _runCloudBackup,
+      ),
       Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.trash2, 'Clear Cache', 'Free up space', AppColors.textSecondary, onTap: _clearCache),
+      _buildSettingsTile(
+        LucideIcons.download,
+        'Export Data',
+        'Download personal config as JSON report',
+        AppColors.accentPurple,
+        onTap: _exportData,
+      ),
+      Divider(color: AppColors.borderSubtle, height: 1),
+      _buildSettingsTile(
+        LucideIcons.upload,
+        'Import Data',
+        'Restore personal config and transactions from JSON',
+        AppColors.accentPurple,
+        onTap: _importData,
+      ),
     ];
   }
 
   List<Widget> _buildSupportItems() {
     return [
-      _buildSettingsTile(LucideIcons.helpCircle, 'Help & Support', 'FAQs and Contact', AppColors.accentEmerald, onTap: _showSupportCenter),
+      _buildSettingsTile(
+        LucideIcons.helpCircle,
+        'Help & Support',
+        'FAQs and contact helpdesk ticket vault',
+        AppColors.accentEmerald,
+        onTap: _showSupportCenter,
+      ),
       Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(LucideIcons.logOut, 'Sign Out', 'Disconnect this device', AppColors.accentRose, onTap: () async {
-        await ref.read(authServiceProvider).signOut();
-        if (mounted) {
-          context.go('/login');
-        }
-      }),
+      _buildSettingsTile(
+        LucideIcons.bookOpen,
+        'System Setup & Guide',
+        'Learn how to onboard and sync on various devices',
+        AppColors.accentPurple,
+        onTap: () => context.push('/install-guide'),
+      ),
+      Divider(color: AppColors.borderSubtle, height: 1),
+      _buildSettingsTile(
+        LucideIcons.logOut,
+        'Sign Out',
+        'Disconnect session from this device safely',
+        AppColors.accentRose,
+        onTap: () async {
+          await ref.read(authServiceProvider).signOut();
+          if (mounted) {
+            context.go('/login');
+          }
+        },
+      ),
     ];
   }
 
-  void _runCloudBackup() {
-    final stepNotifier = ValueNotifier<String>('Preparing secure archive...');
+  void _runCloudBackup() async {
+    final stepNotifier = ValueNotifier<String>('Connecting to secure cloud nodes...');
     final messenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
-
-    Future.delayed(const Duration(milliseconds: 1000), () {
-      stepNotifier.value = 'Encrypting configuration tables...';
-    });
-
-    Future.delayed(const Duration(milliseconds: 2000), () {
-      stepNotifier.value = 'Syncing local ledger database...';
-    });
-
-    Future.delayed(const Duration(milliseconds: 2800), () {
-      if (context.mounted) {
-        navigator.pop();
-        messenger.showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(LucideIcons.checkCircle, color: Colors.white, size: 20),
-                SizedBox(width: 12),
-                Text('Cloud backup successfully completed!'),
-              ],
-            ),
-            backgroundColor: AppColors.accentEmerald,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
-      }
-    });
 
     showDialog(
       context: context,
@@ -373,7 +380,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       child: CircularProgressIndicator(color: AppColors.accentCyan, strokeWidth: 3),
                     ),
                     const SizedBox(height: 20),
-                    const Text('SECURE CLOUD BACKUP', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.accentCyan, letterSpacing: 1.5)),
+                    const Text('SECURE CLOUD SYNC', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.accentCyan, letterSpacing: 1.5)),
                     const SizedBox(height: 12),
                     Text(step, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13), textAlign: TextAlign.center),
                   ],
@@ -383,9 +390,59 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
         );
       },
-    ).then((_) {
+    );
+
+    try {
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (mounted) stepNotifier.value = 'Reconciling offline ledger actions...';
+      
+      // Perform actual sync
+      final syncManager = ref.read(realtimeSyncManagerProvider);
+      await syncManager.triggerSync();
+      
+      await Future.delayed(const Duration(milliseconds: 1000));
+      if (mounted) stepNotifier.value = 'Updating regional caches and profiles...';
+      
+      await Future.delayed(const Duration(milliseconds: 800));
+      
+      if (mounted) {
+        Navigator.pop(context); // Close dialog
+        messenger.showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(LucideIcons.checkCircle, color: Colors.white, size: 20),
+                SizedBox(width: 12),
+                Text('Cloud ledger sync completed successfully!'),
+              ],
+            ),
+            backgroundColor: AppColors.accentEmerald,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Close dialog
+        messenger.showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(LucideIcons.alertTriangle, color: Colors.white, size: 20),
+                const SizedBox(width: 12),
+                Expanded(child: Text('Sync failed: $e')),
+              ],
+            ),
+            backgroundColor: AppColors.accentRose,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } finally {
       stepNotifier.dispose();
-    });
+    }
   }
 
   Future<void> _exportData() async {
@@ -398,23 +455,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     try {
       final prefs = ref.read(preferencesProvider);
       final user = ref.read(currentUserProvider);
+      final userId = user?.id ?? 'guest';
+
+      final cachedExpenses = LocalCacheService.getCachedData('expenses_$userId') ?? [];
+      final cachedIncome = LocalCacheService.getCachedData('income_$userId') ?? [];
 
       final Map<String, dynamic> exportMap = {
         'exported_at': DateTime.now().toIso8601String(),
         'app': 'Kanakku Tracker',
         'version': '1.0.0',
         'user': {
-          'id': user?.id ?? 'guest',
+          'id': userId,
           'email': user?.email ?? 'guest@kanakku.com',
           'username': prefs.username,
           'timezone': prefs.timezone,
-          'currency_index': prefs.currencyIndex,
         },
         'settings': {
           'theme_index': prefs.themeIndex,
+          'currency_index': prefs.currencyIndex,
           'daily_reminders': prefs.dailyReminders,
+          'reminder_time': prefs.reminderTime,
           'app_lock': prefs.appLock,
+          'passcode_pin': prefs.passcodePin,
           'layout': prefs.dashboardLayout,
+        },
+        'data': {
+          'expenses': cachedExpenses,
+          'income': cachedIncome,
         }
       };
 
@@ -443,46 +510,239 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  void _clearCache() {
-    showDialog(
+  String _formatReminderTime(String timeStr) {
+    try {
+      final parts = timeStr.split(':');
+      final hour = int.parse(parts[0]);
+      final minute = int.parse(parts[1]);
+      final tod = TimeOfDay(hour: hour, minute: minute);
+      
+      final h = tod.hourOfPeriod == 0 ? 12 : tod.hourOfPeriod;
+      final m = tod.minute.toString().padLeft(2, '0');
+      final period = tod.period == DayPeriod.am ? 'AM' : 'PM';
+      return '$h:$m $period';
+    } catch (_) {
+      return timeStr;
+    }
+  }
+
+  void _pickReminderTime() async {
+    final prefs = ref.read(preferencesProvider);
+    final parts = prefs.reminderTime.split(':');
+    final initialHour = parts.isNotEmpty ? (int.tryParse(parts[0]) ?? 21) : 21;
+    final initialMinute = parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
+    
+    final TimeOfDay? picked = await showTimePicker(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.bgElevated,
-        title: const Text('Clear Cached Data?', style: TextStyle(color: AppColors.textPrimary)),
-        content: const Text(
-          'This will reset your local settings and layout configurations to default. Active session details will remain intact.',
-          style: TextStyle(color: AppColors.textSecondary),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel', style: TextStyle(color: AppColors.textTertiary)),
+      initialTime: TimeOfDay(hour: initialHour, minute: initialMinute),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.accentCyan,
+              surface: AppColors.bgElevated,
+              onSurface: AppColors.textPrimary,
+            ),
           ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(dialogContext);
-              // Clear cache
-              await LocalCacheService.clearAll();
-              // Re-persist is_logged_in as true so user stays logged in
-              await LocalCacheService.cacheData('is_logged_in', true);
-              // Re-read preferences
-              ref.read(preferencesProvider.notifier).handleUserChange();
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text('Cache cleared successfully!'),
-                    backgroundColor: AppColors.accentEmerald,
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                );
-              }
-            },
-            child: const Text('Clear', style: TextStyle(color: AppColors.accentRose)),
-          ),
-        ],
-      ),
+          child: child!,
+        );
+      },
     );
+    
+    if (picked != null && mounted) {
+      final hourStr = picked.hour.toString().padLeft(2, '0');
+      final minStr = picked.minute.toString().padLeft(2, '0');
+      final formattedTime = '$hourStr:$minStr';
+      await ref.read(preferencesProvider.notifier).updateReminderTime(formattedTime);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Daily reminder updated to ${_formatReminderTime(formattedTime)}!'),
+            backgroundColor: AppColors.accentEmerald,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
+  }
+
+  void _importData() {
+    final textController = TextEditingController();
+    bool isRestoring = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (modalContext, setModalState) {
+            return Container(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              decoration: const BoxDecoration(
+                color: AppColors.bgSecondary,
+                borderRadius: BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24)),
+                border: Border(top: BorderSide(color: AppColors.border, width: 1.5)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 48,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: AppColors.textTertiary.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(2.5),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Import JSON Backup',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                        ),
+                        IconButton(
+                          icon: const Icon(LucideIcons.x, color: AppColors.textSecondary, size: 20),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Paste the exported backup JSON below. This will restore settings and transactions, replacing the current local database state.',
+                      style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.4),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: textController,
+                      maxLines: 8,
+                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 13, fontFamily: 'JetBrains Mono'),
+                      decoration: InputDecoration(
+                        hintText: '{\n  "app": "Kanakku Tracker",\n  "version": "1.0.0",\n  ...\n}',
+                        hintStyle: TextStyle(color: AppColors.textTertiary.withValues(alpha: 0.5), fontSize: 13),
+                        fillColor: AppColors.bgPrimary.withValues(alpha: 0.5),
+                        filled: true,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.border)),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.accentCyan,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: isRestoring ? null : () async {
+                          final jsonText = textController.text.trim();
+                          if (jsonText.isEmpty) return;
+
+                          setModalState(() => isRestoring = true);
+                          await Future.delayed(const Duration(milliseconds: 1000));
+
+                          try {
+                            final Map<String, dynamic> parsed = jsonDecode(jsonText);
+                            if (parsed['app'] != 'Kanakku Tracker') {
+                              throw Exception('Invalid app signature');
+                            }
+
+                            final user = ref.read(currentUserProvider);
+                            final userId = user?.id ?? 'guest';
+                            final prefsNotifier = ref.read(preferencesProvider.notifier);
+
+                            // Restore Settings
+                            final settings = parsed['settings'] as Map<String, dynamic>?;
+                            if (settings != null) {
+                              if (settings.containsKey('theme_index')) {
+                                await prefsNotifier.updateThemeIndex(settings['theme_index'] as int);
+                              }
+                              if (settings.containsKey('currency_index')) {
+                                await prefsNotifier.updateCurrencyIndex(settings['currency_index'] as int);
+                              }
+                              if (settings.containsKey('daily_reminders')) {
+                                await prefsNotifier.updateDailyReminders(settings['daily_reminders'] as bool);
+                              }
+                              if (settings.containsKey('reminder_time')) {
+                                await prefsNotifier.updateReminderTime(settings['reminder_time'] as String);
+                              }
+                              if (settings.containsKey('app_lock')) {
+                                await prefsNotifier.updateAppLock(settings['app_lock'] as bool);
+                              }
+                              if (settings.containsKey('passcode_pin')) {
+                                await prefsNotifier.updatePasscodePin(settings['passcode_pin'] as String);
+                              }
+                            }
+
+                            // Restore Transaction Data
+                            final data = parsed['data'] as Map<String, dynamic>?;
+                            if (data != null) {
+                              if (data.containsKey('expenses')) {
+                                final expenses = List<Map<String, dynamic>>.from(data['expenses']);
+                                await LocalCacheService.cacheData('expenses_$userId', expenses);
+                              }
+                              if (data.containsKey('income')) {
+                                final income = List<Map<String, dynamic>>.from(data['income']);
+                                await LocalCacheService.cacheData('income_$userId', income);
+                              }
+                            }
+
+                            ref.invalidate(expensesStreamProvider);
+                            ref.invalidate(incomeStreamProvider);
+
+                            if (modalContext.mounted) {
+                              Navigator.pop(modalContext);
+                              ScaffoldMessenger.of(modalContext).showSnackBar(
+                                SnackBar(
+                                  content: const Text('Backup restored successfully!'),
+                                  backgroundColor: AppColors.accentEmerald,
+                                  behavior: SnackBarBehavior.floating,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            setModalState(() => isRestoring = false);
+                            if (modalContext.mounted) {
+                              showDialog(
+                                context: modalContext,
+                                builder: (ctx) => AlertDialog(
+                                  backgroundColor: AppColors.bgElevated,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                  title: const Text('Restore Failed', style: TextStyle(color: AppColors.accentRose)),
+                                  content: Text('Error: $e\nMake sure the JSON matches the exported format exactly.', style: const TextStyle(color: AppColors.textSecondary)),
+                                  actions: [
+                                    TextButton(
+                                      child: const Text('OK', style: TextStyle(color: AppColors.accentCyan)),
+                                      onPressed: () => Navigator.pop(ctx),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+                          }
+                        },
+                        child: isRestoring
+                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: AppColors.bgPrimary, strokeWidth: 2))
+                            : const Text('Restore Backup', style: TextStyle(color: AppColors.bgPrimary, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    ).then((_) => textController.dispose());
   }
 
   void _showSupportCenter() {

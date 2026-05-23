@@ -10,7 +10,13 @@ class PreferencesState {
   final int themeIndex;
   final int currencyIndex;
   final bool dailyReminders;
+  final String reminderTime;
+  final bool emailNotifications;
+  final bool pushNotifications;
   final bool appLock;
+  final String passcodePin;
+  final bool biometricEnabled;
+  final bool showCurrencyRates;
   final String timezone;
   final String dateFormat;
   final String fiscalYearStart;
@@ -36,7 +42,13 @@ class PreferencesState {
     this.themeIndex = 0,
     this.currencyIndex = 0,
     this.dailyReminders = true,
-    this.appLock = true,
+    this.reminderTime = '21:00',
+    this.emailNotifications = true,
+    this.pushNotifications = true,
+    this.appLock = false, // Set default appLock to false to prevent lockout
+    this.passcodePin = '',
+    this.biometricEnabled = true,
+    this.showCurrencyRates = true,
     this.timezone = 'Asia/Kolkata (IST)',
     this.dateFormat = 'DD/MM/YYYY',
     this.fiscalYearStart = 'April 1st',
@@ -65,11 +77,19 @@ class PreferencesState {
     this.ratesError,
   });
 
+  String get defaultCurrency => supportedCurrencies[currencyIndex].code;
+
   PreferencesState copyWith({
     int? themeIndex,
     int? currencyIndex,
     bool? dailyReminders,
+    String? reminderTime,
+    bool? emailNotifications,
+    bool? pushNotifications,
     bool? appLock,
+    String? passcodePin,
+    bool? biometricEnabled,
+    bool? showCurrencyRates,
     String? timezone,
     String? dateFormat,
     String? fiscalYearStart,
@@ -93,7 +113,13 @@ class PreferencesState {
       themeIndex: themeIndex ?? this.themeIndex,
       currencyIndex: currencyIndex ?? this.currencyIndex,
       dailyReminders: dailyReminders ?? this.dailyReminders,
+      reminderTime: reminderTime ?? this.reminderTime,
+      emailNotifications: emailNotifications ?? this.emailNotifications,
+      pushNotifications: pushNotifications ?? this.pushNotifications,
       appLock: appLock ?? this.appLock,
+      passcodePin: passcodePin ?? this.passcodePin,
+      biometricEnabled: biometricEnabled ?? this.biometricEnabled,
+      showCurrencyRates: showCurrencyRates ?? this.showCurrencyRates,
       timezone: timezone ?? this.timezone,
       dateFormat: dateFormat ?? this.dateFormat,
       fiscalYearStart: fiscalYearStart ?? this.fiscalYearStart,
@@ -189,7 +215,13 @@ class PreferencesNotifier extends Notifier<PreferencesState> {
       themeIndex: LocalCacheService.getCachedData('${prefix}themeIndex') ?? 0,
       currencyIndex: LocalCacheService.getCachedData('${prefix}currencyIndex') ?? 0,
       dailyReminders: LocalCacheService.getCachedData('${prefix}dailyReminders') ?? true,
-      appLock: LocalCacheService.getCachedData('${prefix}appLock') ?? true,
+      reminderTime: LocalCacheService.getCachedData('${prefix}reminderTime') ?? '21:00',
+      emailNotifications: LocalCacheService.getCachedData('${prefix}emailNotifications') ?? true,
+      pushNotifications: LocalCacheService.getCachedData('${prefix}pushNotifications') ?? true,
+      appLock: LocalCacheService.getCachedData('${prefix}appLock') ?? false,
+      passcodePin: LocalCacheService.getCachedData('${prefix}passcodePin') ?? '',
+      biometricEnabled: LocalCacheService.getCachedData('${prefix}biometricEnabled') ?? true,
+      showCurrencyRates: LocalCacheService.getCachedData('${prefix}showCurrencyRates') ?? true,
       timezone: LocalCacheService.getCachedData('${prefix}timezone') ?? 'Asia/Kolkata (IST)',
       dateFormat: LocalCacheService.getCachedData('${prefix}dateFormat') ?? 'DD/MM/YYYY',
       fiscalYearStart: LocalCacheService.getCachedData('${prefix}fiscalYearStart') ?? 'April 1st',
@@ -310,9 +342,46 @@ class PreferencesNotifier extends Notifier<PreferencesState> {
     await LocalCacheService.cacheData('${_userPrefix}dailyReminders', value);
   }
 
+  Future<void> updateReminderTime(String time) async {
+    state = state.copyWith(reminderTime: time);
+    await LocalCacheService.cacheData('${_userPrefix}reminderTime', time);
+  }
+
+  Future<void> updateEmailNotifications(bool value) async {
+    state = state.copyWith(emailNotifications: value);
+    await LocalCacheService.cacheData('${_userPrefix}emailNotifications', value);
+  }
+
+  Future<void> updatePushNotifications(bool value) async {
+    state = state.copyWith(pushNotifications: value);
+    await LocalCacheService.cacheData('${_userPrefix}pushNotifications', value);
+  }
+
   Future<void> updateAppLock(bool value) async {
     state = state.copyWith(appLock: value);
     await LocalCacheService.cacheData('${_userPrefix}appLock', value);
+  }
+
+  Future<void> updatePasscodePin(String pin) async {
+    state = state.copyWith(passcodePin: pin);
+    await LocalCacheService.cacheData('${_userPrefix}passcodePin', pin);
+  }
+
+  Future<void> updateBiometric(bool value) async {
+    state = state.copyWith(biometricEnabled: value);
+    await LocalCacheService.cacheData('${_userPrefix}biometricEnabled', value);
+  }
+
+  Future<void> updateShowCurrencyRates(bool value) async {
+    state = state.copyWith(showCurrencyRates: value);
+    await LocalCacheService.cacheData('${_userPrefix}showCurrencyRates', value);
+  }
+
+  Future<void> updateDefaultCurrency(String code) async {
+    final idx = supportedCurrencies.indexWhere((c) => c.code == code);
+    if (idx != -1) {
+      await updateCurrencyIndex(idx);
+    }
   }
 
   Future<void> updateTimezone(String value) async {

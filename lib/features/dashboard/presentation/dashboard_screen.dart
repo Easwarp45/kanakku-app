@@ -11,6 +11,7 @@ import '../../income/data/income_service.dart' as inc;
 import '../../../core/providers/auth_provider.dart';
 import '../../groups/data/group_service.dart';
 import '../../../core/providers/preferences_provider.dart';
+import '../../../core/utils/multi_currency_helper.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -56,7 +57,7 @@ class DashboardScreen extends ConsumerWidget {
               const SliverToBoxAdapter(child: SizedBox(height: 28)),
               SliverToBoxAdapter(child: _buildQuickActions(context)),
               const SliverToBoxAdapter(child: SizedBox(height: 28)),
-              SliverToBoxAdapter(child: _buildSmartInsightCard(context)),
+              SliverToBoxAdapter(child: _buildSmartInsightCard(context, ref)),
               const SliverToBoxAdapter(child: SizedBox(height: 28)),
               SliverToBoxAdapter(
                 child: _buildCombinedRecentTransactions(context, ref, expensesAsync, incomeAsync, currencySymbol),
@@ -616,32 +617,105 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   // Single Smart Insight Card (Combines Alerts & Analytics intelligently)
-  Widget _buildSmartInsightCard(BuildContext context) {
+  Widget _buildSmartInsightCard(BuildContext context, WidgetRef ref) {
+    final totalIncome = ref.watch(inc.monthlyIncomeProvider);
+    final expenses = ref.watch(monthlyExpensesProvider);
+    final balance = totalIncome - expenses;
+    final expensesAsync = ref.watch(expensesStreamProvider);
+
+    double parseAmount(dynamic amount) {
+      if (amount is num) return amount.toDouble();
+      return double.tryParse(amount?.toString() ?? '0') ?? 0.0;
+    }
+
+    String topCategory = 'Other';
+    double topCategoryAmount = 0;
+
+    expensesAsync.whenData((list) {
+      final now = DateTime.now();
+      final Map<String, double> categorySums = {};
+      for (final e in list) {
+        final dateStr = e['expense_date']?.toString() ?? e['created_at']?.toString() ?? '';
+        final date = DateTime.tryParse(dateStr);
+        if (date != null && date.year == now.year && date.month == now.month) {
+          final cat = e['category']?.toString() ?? 'Other';
+          final amt = parseAmount(e['amount']);
+          categorySums[cat] = (categorySums[cat] ?? 0.0) + amt;
+        }
+      }
+      if (categorySums.isNotEmpty) {
+        final sorted = categorySums.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+        topCategory = sorted.first.key;
+        topCategoryAmount = sorted.first.value;
+      }
+    });
+
+    final prefs = ref.watch(preferencesProvider);
+    final code = supportedCurrencies[prefs.currencyIndex].code;
+    final rate = prefs.rates[code] ?? 1.0;
+    final displayTopAmount = topCategoryAmount * rate;
+    final currencySymbol = prefs.currencyIndex == 1
+        ? '\$'
+        : prefs.currencyIndex == 2
+            ? '€'
+            : prefs.currencyIndex == 3
+                ? '£'
+                : '₹';
+
+    // Insight selection rule engine
+    String insightText = 'Your allocations are well-aligned. Tap here for deep financial health insights!';
+    IconData insightIcon = LucideIcons.sparkles;
+    Color iconColor = AppColors.accentCyan;
+
+    if (totalIncome == 0 && expenses == 0) {
+      insightText = 'Start logging your expenses and income to generate smart financial insights!';
+      insightIcon = LucideIcons.sparkles;
+      iconColor = AppColors.accentCyan;
+    } else if (expenses > totalIncome && totalIncome > 0) {
+      final diff = expenses - totalIncome;
+      insightText = '⚠️ Spending exceeds income by $currencySymbol${diff.toStringAsFixed(0)}. Trim non-essential items.';
+      insightIcon = LucideIcons.alertTriangle;
+      iconColor = AppColors.accentRose;
+    } else if (balance > 0 && balance < 1000 * rate) {
+      insightText = '💡 Monthly balance is low ($currencySymbol${balance.toStringAsFixed(0)}). Avoid high non-essential purchases.';
+      insightIcon = LucideIcons.lightbulb;
+      iconColor = AppColors.accentAmber;
+    } else if (totalIncome > 0 && (balance / totalIncome) >= 0.3) {
+      final savingsRate = (balance / totalIncome) * 100;
+      insightText = '🎉 Superb! You saved ${savingsRate.toStringAsFixed(0)}% of your income this month. Keep it up!';
+      insightIcon = LucideIcons.trendingUp;
+      iconColor = AppColors.accentEmerald;
+    } else if (topCategoryAmount > 0) {
+      insightText = '🍕 Top spending is on "$topCategory": $currencySymbol${displayTopAmount.toStringAsFixed(0)} this month.';
+      insightIcon = LucideIcons.pieChart;
+      iconColor = AppColors.accentPurple;
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: GestureDetector(
         onTap: () => context.push('/insights'),
         child: GlassCard(
           margin: EdgeInsets.zero,
-          borderColor: AppColors.accentPurple.withValues(alpha: 0.3),
+          borderColor: iconColor.withValues(alpha: 0.3),
           child: Row(
             children: [
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [AppColors.accentPurple, AppColors.accentCyan]),
+                  gradient: LinearGradient(colors: [iconColor, iconColor.withValues(alpha: 0.6)]),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Icon(LucideIcons.sparkles, color: Colors.white, size: 24),
+                child: Icon(insightIcon, color: Colors.white, size: 24),
               ),
               const SizedBox(width: 16),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Smart Insight', style: TextStyle(color: AppColors.textSecondary, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1)),
-                    SizedBox(height: 4),
-                    Text('You spent 15% less on Food this week. Keep it up!', style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600, height: 1.4)),
+                    const Text('Smart Insight', style: TextStyle(color: AppColors.textSecondary, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1)),
+                    const SizedBox(height: 4),
+                    Text(insightText, style: const TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w600, height: 1.4)),
                   ],
                 ),
               ),
@@ -718,7 +792,7 @@ class DashboardScreen extends ConsumerWidget {
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: filtered.length,
                       separatorBuilder: (_, __) => Divider(color: AppColors.borderSubtle, height: 1),
-                      itemBuilder: (context, i) => _buildTransactionItem(filtered[i], currencySymbol),
+                      itemBuilder: (context, i) => _buildTransactionItem(context, ref, filtered[i]),
                     ),
                   ),
                 ],
@@ -737,9 +811,12 @@ class DashboardScreen extends ConsumerWidget {
   // Remove the old _buildRecentTransactions method if it's no longer needed
   // (I'll keep it for now but it's superseded by _buildCombinedRecentTransactions)
 
-  static Widget _buildTransactionItem(Map<String, dynamic> t, String currencySymbol) {
+  Widget _buildTransactionItem(BuildContext context, WidgetRef ref, Map<String, dynamic> t) {
     final isIncome = t['is_income'] == true;
-    final amount = t['amount'] is num ? (t['amount'] as num).toDouble() : double.tryParse(t['amount'].toString()) ?? 0.0;
+    final baseAmount = t['amount'] is num ? (t['amount'] as num).toDouble() : double.tryParse(t['amount'].toString()) ?? 0.0;
+    
+    final prefs = ref.watch(preferencesProvider);
+    final preferredCurrencyCode = supportedCurrencies[prefs.currencyIndex].code;
 
     // Raw description may contain an embedded group token:
     // [GroupExpense: <uuid>|GroupName: <name>] actual title
@@ -752,6 +829,27 @@ class DashboardScreen extends ConsumerWidget {
         : groupName != null
             ? 'via $groupName'
             : (t['category']?.toString() ?? 'expense');
+
+    final mcData = MultiCurrencyData.parse(rawDesc);
+
+    String formattedAmount = '';
+    String sublabel = '';
+
+    if (mcData != null) {
+      formattedAmount = CurrencyFormatter.format(mcData.amount, mcData.currency);
+      if (preferredCurrencyCode != mcData.currency) {
+        final preferredVal = prefs.convertFromBaseline(baseAmount);
+        sublabel = '≈ ${CurrencyFormatter.format(preferredVal, preferredCurrencyCode)}';
+      } else if (mcData.currency != 'INR') {
+        sublabel = '≈ ₹${baseAmount.toStringAsFixed(2)}';
+      }
+    } else {
+      final converted = prefs.convertFromBaseline(baseAmount);
+      formattedAmount = CurrencyFormatter.format(converted, preferredCurrencyCode);
+      if (preferredCurrencyCode != 'INR') {
+        sublabel = '≈ ₹${baseAmount.toStringAsFixed(2)}';
+      }
+    }
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -768,15 +866,24 @@ class DashboardScreen extends ConsumerWidget {
         ),
       ),
       title: Text(
-        displayTitle.isNotEmpty ? displayTitle : (isIncome ? 'Income' : 'Expense'), 
+        displayTitle, 
         style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 14)
       ),
-      subtitle: Text(subText, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(subText, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+          if (sublabel.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(sublabel, style: const TextStyle(color: AppColors.textTertiary, fontSize: 10)),
+          ],
+        ],
+      ),
       trailing: Text(
-        '${isIncome ? '+' : '-'}$currencySymbol${amount.toStringAsFixed(2)}',
+        '${isIncome ? '+' : '-'}$formattedAmount',
         style: AppTheme.moneyStyle.copyWith(
           color: isIncome ? AppColors.accentEmerald : AppColors.textPrimary,
-          fontSize: 15,
+          fontSize: 14,
           fontWeight: FontWeight.w700,
         ),
       ),

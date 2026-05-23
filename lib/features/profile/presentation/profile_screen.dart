@@ -1,20 +1,16 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../shared/widgets/glass_card.dart';
 import '../../../shared/widgets/custom_text_field.dart';
 import '../../../shared/widgets/gradient_button.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/preferences_provider.dart';
-import '../../../core/database/local_cache_service.dart';
 import '../../../core/utils/multi_currency_helper.dart';
+import '../../../core/providers/financial_summary_provider.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -25,13 +21,9 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   final _nameController = TextEditingController();
-  final _usernameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _deliveryMsgController = TextEditingController();
-  final _addressController = TextEditingController();
 
-  bool _isSaving = false;
   bool _isLoadingProfile = true;
 
   final List<Map<String, dynamic>> _avatarPresets = [
@@ -91,13 +83,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         }
       } catch (_) {}
 
-      // Load cached/unsupported fields from local preference provider
-      final prefs = ref.read(preferencesProvider);
       if (mounted) {
         setState(() {
-          _usernameController.text = prefs.username;
-          _addressController.text = prefs.deliveryAddress;
-          _deliveryMsgController.text = prefs.deliveryInstructions;
           _isLoadingProfile = false;
         });
       }
@@ -110,19 +97,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final user = ref.read(currentUserProvider);
     if (user == null) return;
 
-    setState(() => _isSaving = true);
     try {
-      // 1. Update remote DB profiles table
+      // Update remote DB profiles table
       await ref.read(authServiceProvider).updateProfile(user.id, {
         'display_name': _nameController.text.trim(),
         'phone_number': _phoneController.text.trim(),
       });
-
-      // 2. Update local settings cache
-      final prefsNotifier = ref.read(preferencesProvider.notifier);
-      await prefsNotifier.updateUsername(_usernameController.text.trim());
-      await prefsNotifier.updateDeliveryAddress(_addressController.text.trim());
-      await prefsNotifier.updateDeliveryInstructions(_deliveryMsgController.text.trim());
 
       ref.invalidate(userProfileProvider);
 
@@ -148,10 +128,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           SnackBar(content: Text('Error updating profile: $e'), backgroundColor: AppColors.accentRose),
         );
       }
-    } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
     }
   }
 
@@ -168,70 +144,331 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator(color: AppColors.accentCyan)));
     }
 
+    final user = ref.watch(currentUserProvider);
+    final initials = _nameController.text.isNotEmpty 
+        ? _nameController.text.split(' ').map((e) => e.isNotEmpty ? e[0] : '').take(2).join().toUpperCase()
+        : 'U';
+
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(icon: const Icon(LucideIcons.chevronLeft, color: AppColors.textPrimary), onPressed: () => context.pop()),
-        title: const Text('PERSONAL INFORMATION', style: TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w700, letterSpacing: 2)),
-        centerTitle: true,
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildAvatarSection(),
-              const SizedBox(height: 32),
-              
-              _buildSectionTitle('Profile'),
-              _buildProfileSection(),
-              const SizedBox(height: 24),
+      backgroundColor: AppColors.bgPrimary,
+      body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
+        slivers: [
+          _buildSliverAppBar(user, initials),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 12),
+                  _buildFinancialSummary(),
+                  const SizedBox(height: 24),
+                  
+                  _buildCompactSection(
+                    'ACCOUNT',
+                    [
+                      _buildActionRow(
+                        LucideIcons.user, 
+                        'Display Name', 
+                        _nameController.text.isEmpty ? 'Set Name' : _nameController.text, 
+                        onTap: () => _editField('Display Name', _nameController),
+                      ),
+                      _buildActionRow(
+                        LucideIcons.phone, 
+                        'Phone', 
+                        _phoneController.text.isEmpty ? 'Add Phone' : _phoneController.text, 
+                        onTap: () => _editField('Phone Number', _phoneController),
+                      ),
+                      _buildActionRow(
+                        LucideIcons.mail, 
+                        'Email', 
+                        _emailController.text, 
+                        isLocked: true,
+                      ),
+                    ],
+                  ),
 
-              _buildSectionTitle('Contact Information'),
-              _buildContactSection(),
-              const SizedBox(height: 24),
-
-              _buildSectionTitle('Regional Preferences'),
-              _buildRegionalSection(),
-              const SizedBox(height: 24),
-
-              _buildSectionTitle('Financial Preferences'),
-              _buildFinancialSection(),
-              const SizedBox(height: 24),
-
-              _buildSectionTitle('Security'),
-              _buildSecuritySection(),
-              const SizedBox(height: 24),
-
-              _buildSectionTitle('Connected Accounts'),
-              _buildConnectedAccountsSection(),
-              const SizedBox(height: 24),
-
-              _buildSectionTitle('Personalization'),
-              _buildPersonalizationSection(),
-              const SizedBox(height: 24),
-
-              _buildSectionTitle('Privacy Controls'),
-              _buildPrivacySection(),
-              const SizedBox(height: 24),
-
-              _buildSectionTitle('Data Management'),
-              _buildDataSection(),
-              const SizedBox(height: 24),
-
-              _buildSectionTitle('Account Actions'),
-              _buildAccountActionsSection(),
-              const SizedBox(height: 32),
-
-              GradientButton(
-                text: 'Save Changes',
-                icon: LucideIcons.save,
-                onPressed: _saveProfile,
-                isLoading: _isSaving,
+                  const SizedBox(height: 12),
+                  _buildLogoutButton(),
+                  const SizedBox(height: 48),
+                ],
               ),
-              const SizedBox(height: 40),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSliverAppBar(User? user, String initials) {
+    return SliverAppBar(
+      expandedHeight: 220,
+      backgroundColor: AppColors.bgPrimary,
+      elevation: 0,
+      pinned: true,
+      stretch: true,
+      centerTitle: true,
+      leading: IconButton(
+        icon: const Icon(LucideIcons.chevronLeft, color: AppColors.textPrimary),
+        onPressed: () => context.pop(),
+      ),
+      actions: const [],
+      flexibleSpace: FlexibleSpaceBar(
+        centerTitle: true,
+        expandedTitleScale: 1.2,
+        title: const Text(
+          'ME',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 2,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        background: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Subtle Radial Glow
+            Positioned(
+              top: -50,
+              child: Container(
+                width: 300,
+                height: 300,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      AppColors.accentCyan.withValues(alpha: 0.15),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(height: 40),
+                GestureDetector(
+                  onTap: _showAvatarPicker,
+                  child: Hero(
+                    tag: 'profile_avatar',
+                    child: _buildCompactAvatar(initials),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  _nameController.text.isEmpty ? 'Setup Profile' : _nameController.text,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                Text(
+                  user?.email ?? '',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textTertiary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompactAvatar(String initials) {
+    final prefs = ref.watch(preferencesProvider);
+    Gradient? avatarGradient = LinearGradient(colors: _avatarPresets[1]['colors'] as List<Color>);
+    DecorationImage? avatarImage;
+
+    if (prefs.avatarUrl.isNotEmpty) {
+      if (prefs.avatarUrl.startsWith('preset:')) {
+        final idx = int.tryParse(prefs.avatarUrl.split(':').last) ?? 1;
+        avatarGradient = LinearGradient(colors: _avatarPresets[idx]['colors'] as List<Color>);
+      } else if (prefs.avatarUrl.startsWith('assets/')) {
+        avatarImage = DecorationImage(image: AssetImage(prefs.avatarUrl));
+      } else {
+        avatarImage = DecorationImage(image: FileImage(File(prefs.avatarUrl)), fit: BoxFit.cover);
+      }
+    }
+
+    return Container(
+      width: 84,
+      height: 84,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: avatarGradient,
+        image: avatarImage,
+        border: Border.all(color: AppColors.border, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.3),
+            blurRadius: 15,
+            spreadRadius: -5,
+          )
+        ],
+      ),
+      child: avatarImage == null
+          ? Center(
+              child: Text(
+                initials,
+                style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800),
+              ),
+            )
+          : null,
+    );
+  }
+
+  Widget _buildFinancialSummary() {
+    final summary = ref.watch(financialSummaryProvider);
+    final prefs = ref.watch(preferencesProvider);
+    final currencyCode = supportedCurrencies[prefs.currencyIndex].code;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.bgSecondary.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          _buildSummaryItem(
+            LucideIcons.wallet, 
+            'Wallet', 
+            CurrencyFormatter.format(summary.walletBalance, currencyCode),
+          ),
+          Container(width: 1, height: 30, color: AppColors.borderSubtle),
+          _buildSummaryItem(
+            LucideIcons.trendingUp, 
+            'Budget', 
+            CurrencyFormatter.format(summary.monthlyBudget, currencyCode),
+          ),
+          Container(width: 1, height: 30, color: AppColors.borderSubtle),
+          _buildSummaryItem(
+            LucideIcons.award, 
+            'Score', 
+            summary.healthScore.toString(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryItem(IconData icon, String label, String value) {
+    return Expanded(
+      child: Column(
+        children: [
+          Icon(icon, size: 16, color: AppColors.accentCyan),
+          const SizedBox(height: 6),
+          Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+          Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textTertiary, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompactSection(String title, List<Widget> items) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 10, top: 4),
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textTertiary,
+              letterSpacing: 1.5,
+            ),
+          ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            color: AppColors.bgSecondary.withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.borderSubtle),
+          ),
+          child: Column(
+            children: List.generate(items.length, (index) {
+              return Column(
+                children: [
+                  items[index],
+                  if (index != items.length - 1)
+                    Divider(color: AppColors.borderSubtle, height: 1, indent: 52),
+                ],
+              );
+            }),
+          ),
+        ),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  Widget _buildActionRow(IconData icon, String title, String value, {VoidCallback? onTap, bool isLocked = false}) {
+    return InkWell(
+      onTap: isLocked ? null : onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.bgTertiary,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, size: 18, color: AppColors.textSecondary),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                  const SizedBox(height: 2),
+                  Text(value, style: TextStyle(fontSize: 12, color: isLocked ? AppColors.textTertiary : AppColors.accentCyan, fontWeight: FontWeight.w500)),
+                ],
+              ),
+            ),
+            if (!isLocked)
+              const Icon(LucideIcons.chevronRight, size: 16, color: AppColors.textTertiary),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLogoutButton() {
+    return InkWell(
+      onTap: _logout,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: AppColors.accentRose.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.accentRose.withValues(alpha: 0.2)),
+        ),
+        child: const Center(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(LucideIcons.logOut, size: 18, color: AppColors.accentRose),
+              SizedBox(width: 12),
+              Text(
+                'Sign Out',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.accentRose),
+              ),
             ],
           ),
         ),
@@ -239,87 +476,43 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
-  Widget _buildAvatarSection() {
-    final prefs = ref.watch(preferencesProvider);
-    String initials = 'U';
-    if (_nameController.text.isNotEmpty) {
-      initials = _nameController.text.split(' ').map((e) => e.isNotEmpty ? e[0] : '').take(2).join().toUpperCase();
-    }
-
-    DecorationImage? avatarImage;
-    Gradient? avatarGradient;
-
-    if (prefs.avatarUrl.isNotEmpty) {
-      if (prefs.avatarUrl.startsWith('preset:')) {
-        final parts = prefs.avatarUrl.split(':');
-        final idx = int.tryParse(parts.last) ?? 1;
-        final preset = _avatarPresets[idx.clamp(0, _avatarPresets.length - 1)];
-        avatarGradient = LinearGradient(colors: preset['colors'] as List<Color>);
-      } else if (prefs.avatarUrl.startsWith('assets/')) {
-        avatarImage = DecorationImage(image: AssetImage(prefs.avatarUrl), fit: BoxFit.contain);
-      } else {
-        avatarImage = DecorationImage(image: FileImage(File(prefs.avatarUrl)), fit: BoxFit.cover);
-      }
-    } else {
-      // Default Gradient (Vaporwave)
-      avatarGradient = LinearGradient(colors: _avatarPresets[1]['colors'] as List<Color>);
-    }
-
-    return Center(
-      child: Column(
-        children: [
-          GestureDetector(
-            onTap: _showAvatarPicker,
-            child: Stack(
-              alignment: Alignment.bottomRight,
-              children: [
-                Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: avatarGradient,
-                    image: avatarImage,
-                    boxShadow: [BoxShadow(color: AppColors.accentCyan.withValues(alpha: 0.3), blurRadius: 20)],
-                  ),
-                  child: avatarImage == null && avatarGradient != null
-                      ? Center(child: Text(initials, style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w800)))
-                      : null,
-                ),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: const BoxDecoration(color: AppColors.bgElevated, shape: BoxShape.circle),
-                  child: const Icon(LucideIcons.camera, color: AppColors.accentCyan, size: 16),
-                ),
-              ],
+  void _editField(String field, TextEditingController controller) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.bgSecondary,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          left: 24, right: 24, top: 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Update $field', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+            const SizedBox(height: 24),
+            CustomTextField(
+              label: field,
+              controller: controller,
+              autoFocus: true,
             ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Image.asset(
-                'assets/icons/kanakku_logo.png',
-                width: 18,
-                height: 18,
-                fit: BoxFit.contain,
-              ),
-              const SizedBox(width: 6),
-              const Text(
-                'Kanakku',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textTertiary,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          ),
-        ],
+            const SizedBox(height: 24),
+            GradientButton(
+              text: 'Confirm',
+              onPressed: () {
+                _saveProfile();
+                Navigator.pop(context);
+              },
+            ),
+            const SizedBox(height: 32),
+          ],
+        ),
       ),
     );
   }
+
 
   void _showAvatarPicker() {
     showModalBottomSheet(
@@ -435,697 +628,25 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     });
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Text(
-        title.toUpperCase(),
-        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textTertiary, letterSpacing: 1.5),
-      ),
-    );
-  }
 
-  Widget _buildProfileSection() {
-    return GlassCard(
-      margin: EdgeInsets.zero,
-      child: Column(
-        children: [
-          CustomTextField(label: 'Full Name', hint: 'Enter your designation', controller: _nameController, prefixIcon: const Icon(LucideIcons.user, color: AppColors.textTertiary)),
-          const SizedBox(height: 16),
-          CustomTextField(label: 'Username', hint: '@username', controller: _usernameController, prefixIcon: const Icon(LucideIcons.atSign, color: AppColors.textTertiary)),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildContactSection() {
-    return GlassCard(
-      margin: EdgeInsets.zero,
-      child: Column(
-        children: [
-          CustomTextField(label: 'Email Address', hint: 'Enter email', controller: _emailController, keyboardType: TextInputType.emailAddress, prefixIcon: const Icon(LucideIcons.mail, color: AppColors.textTertiary)),
-          const SizedBox(height: 16),
-          CustomTextField(label: 'Phone Number', hint: 'Enter phone number', controller: _phoneController, keyboardType: TextInputType.phone, prefixIcon: const Icon(LucideIcons.phone, color: AppColors.textTertiary)),
-          const SizedBox(height: 16),
-          CustomTextField(label: 'Delivery Address', hint: 'Street, City, Zip', controller: _addressController, prefixIcon: const Icon(LucideIcons.mapPin, color: AppColors.textTertiary)),
-          const SizedBox(height: 16),
-          CustomTextField(label: 'Delivery Instructions / Message', hint: 'e.g. Leave package at the door', controller: _deliveryMsgController, maxLines: 2, prefixIcon: const Icon(LucideIcons.messageSquare, color: AppColors.textTertiary)),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildRegionalSection() {
-    final prefs = ref.watch(preferencesProvider);
-    final timezones = ['Asia/Kolkata (IST)', 'America/New_York (EST)', 'Europe/London (GMT)', 'Asia/Tokyo (JST)', 'Australia/Sydney (AEDT)'];
-    final dateFormats = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD', 'DD-MM-YYYY'];
 
-    return GlassCard(
-      margin: EdgeInsets.zero,
-      padding: EdgeInsets.zero,
-      child: Column(
-        children: [
-          _buildListTile(
-            LucideIcons.globe,
-            'Timezone',
-            prefs.timezone,
-            onTap: () => _showModalPicker(
-              'Timezone',
-              timezones,
-              prefs.timezone,
-              (v) => ref.read(preferencesProvider.notifier).updateTimezone(v),
-            ),
-          ),
-          Divider(color: AppColors.borderSubtle, height: 1),
-          _buildListTile(
-            LucideIcons.calendar,
-            'Date Format',
-            prefs.dateFormat,
-            onTap: () => _showModalPicker(
-              'Date Format',
-              dateFormats,
-              prefs.dateFormat,
-              (v) => ref.read(preferencesProvider.notifier).updateDateFormat(v),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildFinancialSection() {
-    final prefs = ref.watch(preferencesProvider);
-    final currencies = supportedCurrencies.map((c) => '${c.code} (${c.symbol})').toList();
-    final activeCurrency = supportedCurrencies[prefs.currencyIndex];
-    final fiscalYears = ['April 1st', 'January 1st', 'July 1st', 'October 1st'];
 
-    return GlassCard(
-      margin: EdgeInsets.zero,
-      padding: EdgeInsets.zero,
-      child: Column(
-        children: [
-          _buildListTile(
-            activeCurrency.icon,
-            'Base Currency',
-            currencies[prefs.currencyIndex],
-            onTap: () => _showModalPicker(
-              'Base Currency',
-              currencies,
-              currencies[prefs.currencyIndex],
-              (v) {
-                final idx = currencies.indexOf(v);
-                if (idx != -1) {
-                  ref.read(preferencesProvider.notifier).updateCurrencyIndex(idx);
-                }
-              },
-            ),
-          ),
-          Divider(color: AppColors.borderSubtle, height: 1),
-          _buildListTile(
-            LucideIcons.pieChart,
-            'Fiscal Year Start',
-            prefs.fiscalYearStart,
-            onTap: () => _showModalPicker(
-              'Fiscal Year Start',
-              fiscalYears,
-              prefs.fiscalYearStart,
-              (v) => ref.read(preferencesProvider.notifier).updateFiscalYearStart(v),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildSecuritySection() {
-    final prefs = ref.watch(preferencesProvider);
 
-    return GlassCard(
-      margin: EdgeInsets.zero,
-      padding: EdgeInsets.zero,
-      child: Column(
-        children: [
-          _buildListTile(LucideIcons.key, 'Update Password', 'Modify account password credentials', onTap: _showPasswordUpdateDialog),
-          Divider(color: AppColors.borderSubtle, height: 1),
-          _buildListTile(
-            LucideIcons.shieldCheck,
-            'Two-Factor Authentication',
-            prefs.twoFactorAuth ? 'Enabled via Authenticator App' : 'Disabled',
-            color: prefs.twoFactorAuth ? AppColors.accentEmerald : AppColors.textTertiary,
-            onTap: _toggleTwoFactorAuth,
-          ),
-        ],
-      ),
-    );
-  }
 
-  void _showPasswordUpdateDialog() {
-    final curPassController = TextEditingController();
-    final newPassController = TextEditingController();
-    final confPassController = TextEditingController();
-    bool isUpdating = false;
 
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            return AlertDialog(
-              backgroundColor: AppColors.bgElevated,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: const Text('Update Password', style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: curPassController,
-                    obscureText: true,
-                    style: const TextStyle(color: AppColors.textPrimary),
-                    decoration: const InputDecoration(labelText: 'Current Password', hintText: '••••••••'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: newPassController,
-                    obscureText: true,
-                    style: const TextStyle(color: AppColors.textPrimary),
-                    decoration: const InputDecoration(labelText: 'New Password', hintText: 'Min 6 characters'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: confPassController,
-                    obscureText: true,
-                    style: const TextStyle(color: AppColors.textPrimary),
-                    decoration: const InputDecoration(labelText: 'Confirm New Password', hintText: 'Re-enter password'),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isUpdating ? null : () => Navigator.pop(dialogContext),
-                  child: const Text('Cancel', style: TextStyle(color: AppColors.textTertiary)),
-                ),
-                TextButton(
-                  onPressed: isUpdating ? null : () async {
-                    if (newPassController.text.trim().length < 6) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('New password must be at least 6 characters'), backgroundColor: AppColors.accentRose),
-                      );
-                      return;
-                    }
-                    if (newPassController.text != confPassController.text) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Passwords do not match'), backgroundColor: AppColors.accentRose),
-                      );
-                      return;
-                    }
 
-                    final messenger = ScaffoldMessenger.of(context);
-                    setDialogState(() => isUpdating = true);
-                    try {
-                      await Supabase.instance.client.auth.updateUser(
-                        UserAttributes(password: newPassController.text.trim()),
-                      );
-                      if (dialogContext.mounted) {
-                        Navigator.pop(dialogContext);
-                        messenger.showSnackBar(
-                          SnackBar(
-                            content: const Text('Credentials successfully updated!'),
-                            backgroundColor: AppColors.accentEmerald,
-                            behavior: SnackBarBehavior.floating,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                        );
-                      }
-                    } catch (e) {
-                      setDialogState(() => isUpdating = false);
-                      messenger.showSnackBar(
-                        SnackBar(content: Text('Failed: $e'), backgroundColor: AppColors.accentRose),
-                      );
-                    }
-                  },
-                  child: isUpdating
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: AppColors.accentCyan, strokeWidth: 2))
-                      : const Text('Update', style: TextStyle(color: AppColors.accentCyan)),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
 
-  void _toggleTwoFactorAuth() {
-    final prefs = ref.read(preferencesProvider);
-    if (prefs.twoFactorAuth) {
-      // Disabling 2FA
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          backgroundColor: AppColors.bgElevated,
-          title: const Text('Disable 2FA?', style: TextStyle(color: AppColors.textPrimary)),
-          content: const Text('This will lower your ledger vault protection. Are you sure?', style: TextStyle(color: AppColors.textSecondary)),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel', style: TextStyle(color: AppColors.textTertiary))),
-            TextButton(
-              onPressed: () {
-                ref.read(preferencesProvider.notifier).updateTwoFactorAuth(false);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('2FA deactivated'), backgroundColor: AppColors.accentRose, behavior: SnackBarBehavior.floating),
-                );
-              },
-              child: const Text('Disable', style: TextStyle(color: AppColors.accentRose)),
-            ),
-          ],
-        ),
-      );
-    } else {
-      // Pairing wizard simulator
-      final codeController = TextEditingController();
-      bool isPairing = false;
-      showDialog(
-        context: context,
-        builder: (dialogContext) => StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            return AlertDialog(
-              backgroundColor: AppColors.bgElevated,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: const Text('Pair Authenticator App', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 18)),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('1. Open Google Authenticator\n2. Pair using code below:', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.4)),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    width: double.infinity,
-                    decoration: BoxDecoration(color: AppColors.bgPrimary, borderRadius: BorderRadius.circular(8)),
-                    child: const Text('KANA KKKU 777Y BBDD', style: TextStyle(color: AppColors.accentCyan, fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: 1), textAlign: TextAlign.center),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: codeController,
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(color: AppColors.textPrimary),
-                    decoration: const InputDecoration(labelText: 'Verification Code', hintText: 'Enter 6-digit code'),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel', style: TextStyle(color: AppColors.textTertiary))),
-                TextButton(
-                  onPressed: isPairing ? null : () async {
-                    if (codeController.text.trim().length != 6) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Verification code must be 6 digits'), backgroundColor: AppColors.accentRose),
-                      );
-                      return;
-                    }
-                    final messenger = ScaffoldMessenger.of(context);
-                    setDialogState(() => isPairing = true);
-                    await Future.delayed(const Duration(milliseconds: 1000));
-                    ref.read(preferencesProvider.notifier).updateTwoFactorAuth(true);
-                    if (dialogContext.mounted) {
-                      Navigator.pop(dialogContext);
-                      messenger.showSnackBar(
-                        SnackBar(
-                          content: const Text('Two-factor pairing successful!'),
-                          backgroundColor: AppColors.accentEmerald,
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                      );
-                    }
-                  },
-                  child: isPairing
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: AppColors.accentCyan, strokeWidth: 2))
-                      : const Text('Verify & Pair', style: TextStyle(color: AppColors.accentCyan)),
-                ),
-              ],
-            );
-          },
-        ),
-      );
-    }
-  }
 
-  Widget _buildConnectedAccountsSection() {
-    final prefs = ref.watch(preferencesProvider);
-
-    return GlassCard(
-      margin: EdgeInsets.zero,
-      padding: EdgeInsets.zero,
-      child: Column(
-        children: [
-          _buildListTile(
-            LucideIcons.chrome,
-            'Google',
-            prefs.googleConnected ? 'Connected (karthik@gmail.com)' : 'Not Connected',
-            color: prefs.googleConnected ? AppColors.textPrimary : AppColors.textTertiary,
-            onTap: () => _toggleSocialConnection('Google', prefs.googleConnected, (v) => ref.read(preferencesProvider.notifier).updateGoogleConnected(v)),
-          ),
-          Divider(color: AppColors.borderSubtle, height: 1),
-          _buildListTile(
-            LucideIcons.apple,
-            'Apple ID',
-            prefs.appleConnected ? 'Connected' : 'Not Connected',
-            color: prefs.appleConnected ? AppColors.textPrimary : AppColors.textTertiary,
-            onTap: () => _toggleSocialConnection('Apple ID', prefs.appleConnected, (v) => ref.read(preferencesProvider.notifier).updateAppleConnected(v)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _toggleSocialConnection(String provider, bool currentStatus, ValueChanged<bool> onToggle) {
-    if (currentStatus) {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          backgroundColor: AppColors.bgElevated,
-          title: Text('Disconnect $provider?'),
-          content: Text('Do you want to unlink your $provider account? This will disable social login via $provider.'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel', style: TextStyle(color: AppColors.textTertiary))),
-            TextButton(
-              onPressed: () {
-                onToggle(false);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('$provider connection severed'), backgroundColor: AppColors.accentRose, behavior: SnackBarBehavior.floating),
-                );
-              },
-              child: const Text('Disconnect', style: TextStyle(color: AppColors.accentRose)),
-            ),
-          ],
-        ),
-      );
-    } else {
-      BuildContext? dialogCtx;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (dCtx) {
-          dialogCtx = dCtx;
-          return const Center(child: CircularProgressIndicator(color: AppColors.accentCyan));
-        },
-      );
-      Future.delayed(const Duration(milliseconds: 1200), () {
-        if (mounted) {
-          onToggle(true);
-          if (dialogCtx != null && dialogCtx!.mounted) {
-            Navigator.pop(dialogCtx!);
-          }
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('$provider connected successfully!'), backgroundColor: AppColors.accentEmerald, behavior: SnackBarBehavior.floating),
-            );
-          }
-        }
-      });
-    }
-  }
-
-  Widget _buildPersonalizationSection() {
-    final prefs = ref.watch(preferencesProvider);
-    final layouts = ['Standard View', 'Compact View', 'Detailed Analytics View'];
-    final categories = ['Food & Dining', 'Transport', 'Entertainment', 'Utilities', 'Shopping', 'Healthcare', 'Other'];
-
-    return GlassCard(
-      margin: EdgeInsets.zero,
-      padding: EdgeInsets.zero,
-      child: Column(
-        children: [
-          _buildListTile(
-            LucideIcons.layoutTemplate,
-            'Dashboard Layout',
-            prefs.dashboardLayout,
-            onTap: () => _showModalPicker(
-              'Dashboard Layout',
-              layouts,
-              prefs.dashboardLayout,
-              (v) => ref.read(preferencesProvider.notifier).updateDashboardLayout(v),
-            ),
-          ),
-          Divider(color: AppColors.borderSubtle, height: 1),
-          _buildListTile(
-            LucideIcons.sparkles,
-            'Default Expense Category',
-            prefs.defaultExpenseCategory,
-            onTap: () => _showModalPicker(
-              'Default Expense Category',
-              categories,
-              prefs.defaultExpenseCategory,
-              (v) => ref.read(preferencesProvider.notifier).updateDefaultExpenseCategory(v),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPrivacySection() {
-    final prefs = ref.watch(preferencesProvider);
-    final visibilities = ['Private', 'Public (Groups)', 'Invisible'];
-    final sharingOpts = ['Analytics Only', 'Full Sharing', 'Opt Out'];
-
-    return GlassCard(
-      margin: EdgeInsets.zero,
-      padding: EdgeInsets.zero,
-      child: Column(
-        children: [
-          _buildListTile(
-            LucideIcons.eyeOff,
-            'Profile Visibility',
-            prefs.profileVisibility,
-            onTap: () => _showModalPicker(
-              'Profile Visibility',
-              visibilities,
-              prefs.profileVisibility,
-              (v) => ref.read(preferencesProvider.notifier).updateProfileVisibility(v),
-            ),
-          ),
-          Divider(color: AppColors.borderSubtle, height: 1),
-          _buildListTile(
-            LucideIcons.share2,
-            'Data Sharing',
-            prefs.dataSharing,
-            onTap: () => _showModalPicker(
-              'Data Sharing',
-              sharingOpts,
-              prefs.dataSharing,
-              (v) => ref.read(preferencesProvider.notifier).updateDataSharing(v),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDataSection() {
-    return GlassCard(
-      margin: EdgeInsets.zero,
-      padding: EdgeInsets.zero,
-      child: Column(
-        children: [
-          _buildListTile(LucideIcons.downloadCloud, 'Request Account Data', 'Download an archive of your data', onTap: _exportData),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _exportData() async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(child: CircularProgressIndicator(color: AppColors.accentCyan)),
-    );
-
-    try {
-      final prefs = ref.read(preferencesProvider);
-      final user = ref.read(currentUserProvider);
-
-      final Map<String, dynamic> exportMap = {
-        'exported_at': DateTime.now().toIso8601String(),
-        'app': 'Kanakku Tracker',
-        'version': '1.0.0',
-        'user': {
-          'id': user?.id ?? 'guest',
-          'email': user?.email ?? 'guest@kanakku.com',
-          'username': prefs.username,
-          'timezone': prefs.timezone,
-          'currency_index': prefs.currencyIndex,
-          'delivery_address': prefs.deliveryAddress,
-          'delivery_instructions': prefs.deliveryInstructions,
-        },
-        'settings': {
-          'theme_index': prefs.themeIndex,
-          'daily_reminders': prefs.dailyReminders,
-          'app_lock': prefs.appLock,
-          'layout': prefs.dashboardLayout,
-        }
-      };
-
-      final jsonString = jsonEncode(exportMap);
-      final tempDir = await getTemporaryDirectory();
-      final file = File('${tempDir.path}/kanakku_account_${DateTime.now().millisecondsSinceEpoch}.json');
-      await file.writeAsString(jsonString);
-
-      if (mounted) {
-        Navigator.pop(context); // Close loading
-      }
-
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(file.path)],
-          text: 'My Kanakku App Data Export',
-        ),
-      );
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context); // Close loading
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e'), backgroundColor: AppColors.accentRose),
-        );
-      }
-    }
-  }
-
-  Widget _buildAccountActionsSection() {
-    return GlassCard(
-      margin: EdgeInsets.zero,
-      padding: EdgeInsets.zero,
-      borderColor: AppColors.accentRose.withValues(alpha: 0.3),
-      child: Column(
-        children: [
-          _buildListTile(LucideIcons.logOut, 'Log Out', 'End your current session', color: AppColors.textPrimary, onTap: _logout),
-          Divider(color: AppColors.borderSubtle, height: 1),
-          _buildListTile(LucideIcons.pauseCircle, 'Deactivate Account', 'Temporarily disable your profile', color: AppColors.accentAmber, onTap: _deactivateAccount),
-          Divider(color: AppColors.borderSubtle, height: 1),
-          _buildListTile(LucideIcons.trash2, 'Delete Account', 'Permanently remove all data', color: AppColors.accentRose, onTap: _deleteAccount),
-        ],
-      ),
-    );
-  }
-
-  void _deactivateAccount() {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.bgElevated,
-        title: const Text('Deactivate Account?'),
-        content: const Text('This will temporarily disable your profile and log you out. You can reactivate anytime by logging back in.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel', style: TextStyle(color: AppColors.textTertiary))),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(dialogContext);
-              await ref.read(authServiceProvider).signOut();
-              if (mounted) {
-                context.go('/login');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Account deactivated successfully!'), backgroundColor: AppColors.accentAmber),
-                );
-              }
-            },
-            child: const Text('Deactivate', style: TextStyle(color: AppColors.accentAmber)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _deleteAccount() {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.bgElevated,
-        title: const Text('DELETE ACCOUNT PERMANENTLY?', style: TextStyle(color: AppColors.accentRose)),
-        content: const Text('CRITICAL: This action cannot be undone. All your profile info, cloud records and transaction history will be purged.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel', style: TextStyle(color: AppColors.textTertiary))),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(dialogContext);
-              // Perform deletion
-              final user = ref.read(currentUserProvider);
-              if (user != null) {
-                try {
-                  // Attempt to purge remote profile via auth provider or Supabase API if possible
-                  // In local emulation we clear all local preferences cache as well
-                  await LocalCacheService.clearAll();
-                  await ref.read(authServiceProvider).signOut();
-                } catch (_) {}
-              }
-              if (mounted) {
-                context.go('/login');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('All account records permanently purged'), backgroundColor: AppColors.accentRose),
-                );
-              }
-            },
-            child: const Text('DELETE FOREVER', style: TextStyle(color: AppColors.accentRose)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showModalPicker(String title, List<String> items, String currentSelected, ValueChanged<String> onSelected) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.bgElevated,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => ListView.separated(
-        shrinkWrap: true,
-        padding: const EdgeInsets.all(16),
-        itemCount: items.length + 1,
-        separatorBuilder: (context, index) => Divider(color: AppColors.borderSubtle.withValues(alpha: 0.5)),
-        itemBuilder: (context, index) {
-          if (index == 0) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(title, style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w700)),
-            );
-          }
-          final item = items[index - 1];
-          return ListTile(
-            title: Text(item, style: const TextStyle(color: AppColors.textPrimary)),
-            trailing: item == currentSelected ? const Icon(LucideIcons.check, color: AppColors.accentCyan) : null,
-            onTap: () {
-              onSelected(item);
-              Navigator.pop(context);
-            },
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildListTile(IconData icon, String title, String subtitle, {Color color = AppColors.textPrimary, VoidCallback? onTap}) {
-    return ListTile(
-      leading: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
-        child: Icon(icon, color: color, size: 20),
-      ),
-      title: Text(title, style: TextStyle(color: color, fontWeight: FontWeight.w500, fontSize: 14)),
-      subtitle: Text(subtitle, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-      trailing: const Icon(LucideIcons.chevronRight, color: AppColors.textTertiary, size: 16),
-      onTap: onTap,
-    );
-  }
 
   @override
   void dispose() {
     _nameController.dispose();
-    _usernameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
-    _deliveryMsgController.dispose();
-    _addressController.dispose();
     super.dispose();
   }
 }
