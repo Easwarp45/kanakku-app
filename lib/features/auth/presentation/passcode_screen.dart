@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,12 +5,12 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/providers/preferences_provider.dart';
 import '../../../core/providers/auth_provider.dart';
-import '../../../shared/widgets/glass_card.dart';
 
 enum PasscodeMode {
   setup,
   verifyDisable,
   unlock,
+  change,
 }
 
 class PasscodeScreen extends ConsumerStatefulWidget {
@@ -33,6 +32,7 @@ class _PasscodeScreenState extends ConsumerState<PasscodeScreen> with SingleTick
   String _firstEntry = '';
   String _statusText = '';
   String _errorText = '';
+  bool _changeModeVerified = false;
   
   // Animation controllers
   late AnimationController _shakeCtrl;
@@ -67,6 +67,9 @@ class _PasscodeScreenState extends ConsumerState<PasscodeScreen> with SingleTick
         break;
       case PasscodeMode.unlock:
         _statusText = 'Enter PIN to Unlock';
+        break;
+      case PasscodeMode.change:
+        _statusText = _changeModeVerified ? 'Create a 4-Digit Passcode' : 'Enter Current Passcode';
         break;
     }
   }
@@ -109,6 +112,55 @@ class _PasscodeScreenState extends ConsumerState<PasscodeScreen> with SingleTick
   void _processPasscode() async {
     final enteredPin = _digits.join();
     final prefs = ref.read(preferencesProvider);
+
+    if (widget.mode == PasscodeMode.change) {
+      if (!_changeModeVerified) {
+        // Stage 1: Verify current PIN
+        final actualPin = prefs.passcodePin;
+        if (enteredPin == actualPin) {
+          setState(() {
+            _changeModeVerified = true;
+            _digits.clear();
+            _initStatusText();
+          });
+        } else {
+          setState(() {
+            _errorText = 'Incorrect Passcode';
+          });
+          _triggerShake();
+        }
+      } else {
+        // Stage 2: Setup new PIN
+        if (_firstEntry.isEmpty) {
+          // Storing the first entry to confirm
+          setState(() {
+            _firstEntry = enteredPin;
+            _digits.clear();
+            _statusText = 'Confirm Your Passcode';
+          });
+        } else {
+          if (enteredPin == _firstEntry) {
+            // Success: PIN set up!
+            await ref.read(preferencesProvider.notifier).updatePasscodePin(enteredPin);
+            if (widget.onSuccess != null) {
+              widget.onSuccess!();
+            } else {
+              if (mounted) context.pop();
+            }
+          } else {
+            // mismatch
+            setState(() {
+              _errorText = 'Passcodes do not match. Start over.';
+              _firstEntry = '';
+              _initStatusText();
+            });
+            _triggerShake();
+          }
+        }
+      }
+      return;
+    }
+
     final isSetup = widget.mode == PasscodeMode.setup;
 
     if (isSetup) {

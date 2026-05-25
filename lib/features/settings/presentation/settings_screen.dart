@@ -287,6 +287,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           activeTrackColor: AppColors.accentCyan.withValues(alpha: 0.2),
         ),
       ),
+      if (prefs.appLock) ...[
+        Divider(color: AppColors.borderSubtle, height: 1),
+        _buildSettingsTile(
+          LucideIcons.keyRound,
+          'Change Passcode',
+          'Change your 4-digit security PIN',
+          AppColors.accentCyan,
+          onTap: () {
+            context.push(
+              '/passcode',
+              extra: {
+                'mode': PasscodeMode.change,
+                'onSuccess': () {
+                  context.pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Text('Passcode updated successfully!'),
+                      backgroundColor: AppColors.accentEmerald,
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  );
+                }
+              },
+            );
+          },
+        ),
+      ],
       Divider(color: AppColors.borderSubtle, height: 1),
       _buildSettingsTile(
         LucideIcons.creditCard,
