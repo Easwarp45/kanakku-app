@@ -36,6 +36,72 @@ The application leverages a dark glassmorphic UI design, combining visually stun
 
 ## 🛠 Architecture & Tech Stack
 
+Kanakku uses a multi-layered, **offline-first Architecture** combining **Flutter UI**, **Riverpod State controllers**, **Hive local caching**, and the **Supabase cloud engine**.
+
+```mermaid
+graph TD
+    UI[UI Presentation Layer<br>Flutter Widgets / Glassmorphic Views]
+    PROV[State Controller Layer<br>Riverpod Notifiers & Providers]
+    CACHE[Local Caching Layer<br>Hive Box Local Stores]
+    QUEUE[Pending Queue Box<br>Hive Action Buffer]
+    SYNC[Sync Service Layer<br>RealtimeSyncManager Runner]
+    REMOTE[Cloud Database Layer<br>Supabase Postgres Service]
+
+    UI -->|Read streams & states| PROV
+    UI -->|Dispatch User actions| PROV
+    PROV -->|Read/Write Cache| CACHE
+    PROV -->|Queue mutations offline| QUEUE
+    SYNC -->|Monitor network status| QUEUE
+    SYNC -->|Push actions online| REMOTE
+    REMOTE -->|Listen realtime streams| CACHE
+```
+
+### 1. Architectural Layers & Roles
+- **Presentation Layer (`lib/shared` & `lib/features/*/presentation`)**: Renders the visual elements, charts, and transaction feeds. Listens directly to Riverpod StreamProviders.
+- **State Controller Layer (`lib/core/providers` & `lib/features/*/data`)**: Riverpod Notifiers maintain in-memory states (theme index, currencies, wallet balances, budgets) and dispatch database actions.
+- **Local Persistence Layer (`lib/core/database/local_cache_service.dart`)**: Uses Hive to cache list/map representations of tables. Enables zero-latency startup and complete offline usability.
+- **Background Sync Layer (`lib/core/database/realtime_sync_manager.dart`)**: A connectivity-aware worker that monitors the network status and serializes pending local writes to the cloud DB.
+- **Cloud Database Layer (Supabase)**: Serves as the source of truth, enforcing cascading schema relationships and Row-Level Security (RLS) policies.
+
+---
+
+## 🔄 Caching & Offline Sync Pipeline
+
+Kanakku implements a strict **Optimistic Update** model. Below is the step-by-step transaction sync lifecycle:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User Action
+    participant UI as Flutter View
+    participant Prov as Riverpod State
+    participant Hive as Hive Cache Box
+    participant Queue as Sync Queue Box
+    participant Sync as Sync Manager
+    participant DB as Supabase DB
+
+    User->>UI: Logs expense (e.g. ₹500 Pizza)
+    UI->>Prov: Triggers addExpense()
+    Prov->>Hive: Writes record optimistically
+    Hive-->>UI: Instantly updates UI (No spinner)
+    Prov->>Queue: Appends action payload (e.g. insert: Pizza)
+    Note over Sync: Connection Restored (Online)
+    Sync->>Queue: Dequeues next pending action
+    Sync->>DB: Executes mutation (API request)
+    DB-->>Sync: Confirms transaction written (200 OK)
+    Sync->>Hive: Promotes state to synced (check icon)
+    Sync->>Queue: Removes action from queue
+```
+
+### Flow Details
+1. **Offline Write**: Transactions logged while offline update the local Hive cache immediately, creating a temporary ID (e.g. `temp_1700000000`).
+2. **Queueing**: The mutation is saved as a JSON packet inside `kanakku_pending_queue_v4` describing the `actionType` (`insert`, `update`, `delete`), table `path`, and parameters.
+3. **Reconciliation**: When connection status changes to online, `RealtimeSyncManager` executes the action queue sequentially. On success, it replaces temporary cached IDs with the confirmed Supabase database row.
+
+---
+
+## 📂 Codebase Directory Layout
+
 The codebase adheres to a clean, **feature-first directory layout**:
 
 ```
@@ -61,20 +127,6 @@ lib/
 │   └── settings/        # App controls, backups, guides, and UPI links
 └── shared/              # Reusable UI widgets (GlassCard, CustomTextField, BottomNav)
 ```
-
-### 1. State Management (Riverpod)
-- **Declarative Providers**: Features like `preferencesProvider`, `expensesStreamProvider`, and `incomeStreamProvider` stream data seamlessly into views.
-- **Auto-Disposal**: Reconciles and releases resources automatically when navigating away from specific groups or chats.
-
-### 2. Offline Synchronization Engine
-- **Local Persistence**: Data is persisted in Hive boxes (`group_expenses_$groupId`, `expenses_$userId`, etc.) for instant, zero-latency startup.
-- **Queueing**: Mutations made while offline are saved to a background queue (`kanakku_pending_queue_v4`).
-- **Reconciliation**: Once an active connection is detected, `RealtimeSyncManager` executes pending operations sequentially.
-
-### 3. Database Schema (Supabase PostgreSQL)
-- **Profiles**: Link authentication records to display names and currencies.
-- **Cascade Deletes**: Deleting a group expense cascades and deletes related member splits.
-- **Check Constraints**: Enforces split types (`'equal'` and `'custom'`) at the database level to maintain data integrity.
 
 ---
 
