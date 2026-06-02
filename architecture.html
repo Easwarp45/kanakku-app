@@ -1,0 +1,1563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kanakku: System Architecture & Workflow Presentation</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <style>
+    :root {
+      --bg-dark: #07070a;
+      --bg-card: rgba(20, 20, 30, 0.4);
+      --bg-card-hover: rgba(25, 25, 40, 0.6);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-glow: rgba(0, 242, 254, 0.2);
+      
+      --accent-cyan: #00f2fe;
+      --accent-purple: #9b51e0;
+      --accent-emerald: #05c46b;
+      --accent-rose: #ff3f34;
+      --accent-amber: #ffc048;
+      
+      --text-primary: #ffffff;
+      --text-secondary: #a4b0be;
+      --text-tertiary: #747d8c;
+      
+      --font-display: 'Outfit', sans-serif;
+      --font-body: 'Plus Jakarta Sans', sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-primary);
+      font-family: var(--font-body);
+      overflow-x: hidden;
+      line-height: 1.6;
+    }
+
+    /* Ambient Background Glows */
+    .glow-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      pointer-events: none;
+      z-index: -1;
+      overflow: hidden;
+    }
+
+    .glow-blob {
+      position: absolute;
+      width: 600px;
+      height: 600px;
+      border-radius: 50%;
+      filter: blur(160px);
+      opacity: 0.15;
+      animation: drift 25s infinite alternate ease-in-out;
+    }
+
+    .glow-cyan {
+      background: var(--accent-cyan);
+      top: -10%;
+      left: -10%;
+    }
+
+    .glow-purple {
+      background: var(--accent-purple);
+      bottom: -10%;
+      right: -10%;
+      animation-delay: -5s;
+    }
+
+    @keyframes drift {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(100px, 50px) scale(1.2); }
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--bg-dark);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--accent-cyan);
+    }
+
+    /* Container */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Header */
+    header {
+      padding: 30px 0;
+      border-bottom: 1px solid var(--border-color);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(7, 7, 10, 0.8);
+    }
+
+    .header-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 24px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 24px;
+    }
+
+    .nav-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 14px;
+      transition: color 0.3s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .nav-links a:hover {
+      color: var(--accent-cyan);
+    }
+
+    /* Glass Card Standard */
+    .glass-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      padding: 30px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+    }
+
+    .glass-card:hover {
+      border-color: var(--border-glow);
+      transform: translateY(-4px);
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 80px 0 60px 0;
+      text-align: center;
+    }
+
+    .hero h1 {
+      font-family: var(--font-display);
+      font-size: 56px;
+      font-weight: 800;
+      letter-spacing: -1.5px;
+      line-height: 1.1;
+      margin-bottom: 20px;
+      background: linear-gradient(to right, #ffffff, #8888ff, var(--accent-cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      animation: fadeInDown 0.8s ease-out;
+    }
+
+    .hero p {
+      font-size: 18px;
+      color: var(--text-secondary);
+      max-width: 700px;
+      margin: 0 auto 36px auto;
+      font-weight: 400;
+      animation: fadeInUp 0.8s ease-out;
+    }
+
+    .tag-container {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 40px;
+      animation: fadeInUp 1s ease-out;
+    }
+
+    .tag {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      padding: 8px 16px;
+      border-radius: 30px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tag i {
+      width: 14px;
+      height: 14px;
+      color: var(--accent-cyan);
+    }
+
+    /* Keyframes */
+    @keyframes fadeInDown {
+      from { opacity: 0; transform: translateY(-30px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(30px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Section Styles */
+    section {
+      padding: 60px 0;
+    }
+
+    .section-title {
+      font-family: var(--font-display);
+      font-size: 32px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .section-title i {
+      color: var(--accent-cyan);
+    }
+
+    .section-desc {
+      color: var(--text-secondary);
+      margin-bottom: 40px;
+      max-width: 600px;
+    }
+
+    /* Section 2: Interactive Data Flow Visualizer */
+    .flow-visualizer {
+      display: grid;
+      grid-template-columns: 1fr 2.5fr;
+      gap: 30px;
+    }
+
+    .step-list {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .step-card {
+      padding: 20px;
+      cursor: pointer;
+      border-left: 4px solid transparent;
+    }
+
+    .step-card.active {
+      border-left-color: var(--accent-cyan);
+      background: rgba(0, 242, 254, 0.04);
+      border-color: rgba(0, 242, 254, 0.2) rgba(0, 242, 254, 0.2) rgba(0, 242, 254, 0.2) var(--accent-cyan);
+    }
+
+    .step-card h3 {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .step-card h3 i {
+      color: var(--text-tertiary);
+    }
+
+    .step-card.active h3 i {
+      color: var(--accent-cyan);
+    }
+
+    .step-card p {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .diagram-panel {
+      position: relative;
+      min-height: 480px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: rgba(10, 10, 15, 0.8);
+    }
+
+    /* Diagram Nodes */
+    .diagram-stage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 50px;
+      width: 100%;
+      padding: 40px;
+    }
+
+    .row-nodes {
+      display: flex;
+      justify-content: space-around;
+      width: 100%;
+      position: relative;
+    }
+
+    .node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      width: 180px;
+      text-align: center;
+      z-index: 5;
+      transition: all 0.3s;
+    }
+
+    .node i {
+      font-size: 24px;
+      color: var(--text-secondary);
+    }
+
+    .node span {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .node.active {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 20px rgba(0, 242, 254, 0.25);
+      background: rgba(0, 242, 254, 0.08);
+      transform: scale(1.05);
+    }
+
+    .node.active i {
+      color: var(--accent-cyan);
+    }
+
+    /* Connector lines using absolute layout SVGs */
+    .lines-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .svg-line {
+      stroke: var(--border-color);
+      stroke-width: 2;
+      fill: none;
+      stroke-dasharray: 6 6;
+      transition: stroke 0.3s, stroke-width 0.3s;
+    }
+
+    .svg-line.active {
+      stroke: var(--accent-cyan);
+      stroke-width: 3;
+      animation: dashOffset 1s linear infinite;
+    }
+
+    @keyframes dashOffset {
+      to {
+        stroke-dashoffset: -20;
+      }
+    }
+
+    /* Section 3: Interactive Offline Sync Simulator */
+    .sync-simulator-wrapper {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 40px;
+    }
+
+    .simulator-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .sim-button {
+      padding: 16px 24px;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      color: var(--text-primary);
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      transition: all 0.3s;
+    }
+
+    .sim-button:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .sim-button.accent-cyan {
+      background: linear-gradient(135deg, rgba(0, 242, 254, 0.15), rgba(0, 242, 254, 0.02));
+      border-color: rgba(0, 242, 254, 0.3);
+      color: var(--accent-cyan);
+    }
+
+    .sim-button.accent-cyan:hover {
+      background: rgba(0, 242, 254, 0.25);
+    }
+
+    .sim-button.accent-rose {
+      background: linear-gradient(135deg, rgba(255, 63, 52, 0.15), rgba(255, 63, 52, 0.02));
+      border-color: rgba(255, 63, 52, 0.3);
+      color: var(--accent-rose);
+    }
+
+    .sim-button.accent-rose:hover {
+      background: rgba(255, 63, 52, 0.25);
+    }
+
+    .sim-button.accent-emerald {
+      background: linear-gradient(135deg, rgba(5, 196, 107, 0.15), rgba(5, 196, 107, 0.02));
+      border-color: rgba(5, 196, 107, 0.3);
+      color: var(--accent-emerald);
+    }
+
+    .sim-button.accent-emerald:hover {
+      background: rgba(5, 196, 107, 0.25);
+    }
+
+    .sim-button:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /* Interactive Simulator Visual Panels */
+    .simulator-display {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .device-mockup {
+      background: #0d0d14;
+      border: 4px solid #1a1a26;
+      border-radius: 32px;
+      height: 460px;
+      width: 280px;
+      margin: 0 auto;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+    }
+
+    /* Screen elements */
+    .device-notch {
+      background: #1a1a26;
+      height: 20px;
+      width: 140px;
+      border-radius: 0 0 12px 12px;
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+    }
+
+    .device-screen {
+      padding: 30px 16px 16px 16px;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      gap: 12px;
+    }
+
+    .screen-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .screen-title {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text-primary);
+    }
+
+    .conn-status {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: background 0.3s, color 0.3s;
+    }
+
+    .conn-status.online {
+      background: rgba(5, 196, 107, 0.15);
+      color: var(--accent-emerald);
+    }
+
+    .conn-status.offline {
+      background: rgba(255, 63, 52, 0.15);
+      color: var(--accent-rose);
+    }
+
+    .device-box {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 10px;
+    }
+
+    .device-box-title {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-tertiary);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* Transaction UI */
+    .sim-transactions {
+      flex: 1.2;
+      overflow-y: auto;
+      max-height: 140px;
+    }
+
+    .sim-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .sim-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 10px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      font-size: 11px;
+      animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    .sim-item.synced {
+      border-color: rgba(5, 196, 107, 0.2);
+    }
+
+    .sim-item.pending {
+      border-color: rgba(255, 192, 72, 0.2);
+    }
+
+    .sim-item-title {
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .sim-item-title i {
+      width: 12px;
+      height: 12px;
+    }
+
+    .sim-item-title .icon-pending { color: var(--accent-amber); }
+    .sim-item-title .icon-synced { color: var(--accent-emerald); }
+
+    .sim-item-amt {
+      font-weight: 700;
+      font-family: var(--font-display);
+    }
+
+    .sim-item-amt.rose { color: var(--accent-rose); }
+    .sim-item-amt.emerald { color: var(--accent-emerald); }
+
+    /* Pending Sync Stack */
+    .sim-queue {
+      flex: 0.8;
+    }
+
+    .queue-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 60px;
+      justify-content: center;
+    }
+
+    .queue-empty-text {
+      text-align: center;
+      font-size: 10px;
+      color: var(--text-tertiary);
+    }
+
+    .queue-item {
+      background: rgba(255, 192, 72, 0.08);
+      border: 1px dashed rgba(255, 192, 72, 0.3);
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--accent-amber);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    .queue-item span {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    @keyframes popIn {
+      from { opacity: 0; transform: scale(0.85); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    /* Beam Effect Visual */
+    .sync-channel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      margin-top: 10px;
+    }
+
+    .cloud-database-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      width: 280px;
+      margin: 0 auto;
+      text-align: center;
+      transition: all 0.3s;
+    }
+
+    .cloud-database-card.active {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 20px rgba(0, 242, 254, 0.2);
+    }
+
+    .cloud-database-card i {
+      font-size: 24px;
+      color: var(--text-tertiary);
+      transition: color 0.3s;
+    }
+
+    .cloud-database-card.active i {
+      color: var(--accent-cyan);
+    }
+
+    .cloud-database-card-info {
+      text-align: right;
+    }
+
+    .cloud-database-card-info h4 {
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .cloud-database-card-info p {
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    /* Connection Beam Line */
+    .beam-wrapper {
+      width: 100%;
+      height: 40px;
+      position: relative;
+      display: flex;
+      justify-content: center;
+    }
+
+    .beam-line {
+      width: 2px;
+      height: 100%;
+      background: var(--border-color);
+      position: relative;
+    }
+
+    .beam-line.connected {
+      background: linear-gradient(to bottom, var(--accent-cyan), var(--accent-purple));
+    }
+
+    .beam-pulse {
+      position: absolute;
+      width: 6px;
+      height: 6px;
+      background: var(--accent-cyan);
+      border-radius: 50%;
+      left: -2px;
+      top: 0;
+      box-shadow: 0 0 10px var(--accent-cyan);
+      display: none;
+    }
+
+    .beam-pulse.active {
+      display: block;
+      animation: travelDown 1s cubic-bezier(0.455, 0.03, 0.515, 0.955) forwards;
+    }
+
+    @keyframes travelDown {
+      0% { top: 0; opacity: 1; }
+      100% { top: 100%; opacity: 0; }
+    }
+
+    /* Section 4: Database Schema Explorer */
+    .schema-explorer {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+    }
+
+    .schema-card {
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      background: rgba(15, 15, 25, 0.4);
+      padding: 24px;
+      transition: all 0.3s;
+    }
+
+    .schema-card:hover {
+      border-color: var(--accent-purple);
+      box-shadow: 0 10px 20px rgba(155, 81, 224, 0.1);
+    }
+
+    .schema-card h3 {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--accent-cyan);
+    }
+
+    .schema-card h3 span {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 8px;
+      background: rgba(0, 242, 254, 0.1);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .schema-card:nth-child(even) h3 {
+      color: var(--accent-purple);
+    }
+
+    .schema-card:nth-child(even) h3 span {
+      background: rgba(155, 81, 224, 0.1);
+    }
+
+    .column-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .column-item {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    }
+
+    .col-name {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .col-type {
+      color: var(--text-tertiary);
+      font-family: monospace;
+    }
+
+    .col-key {
+      color: var(--accent-amber);
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    /* Section 5: Feature Highlights */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 30px;
+    }
+
+    .feature-item {
+      text-align: left;
+    }
+
+    .feature-icon-wrapper {
+      width: 50px;
+      height: 50px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
+      border: 1px solid var(--border-color);
+      transition: all 0.3s;
+    }
+
+    .feature-item:hover .feature-icon-wrapper {
+      transform: rotate(6deg) scale(1.05);
+      border-color: var(--accent-cyan);
+    }
+
+    .feature-item h3 {
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .feature-item p {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    .feature-item:nth-child(1) .feature-icon-wrapper i { color: var(--accent-rose); }
+    .feature-item:nth-child(2) .feature-icon-wrapper i { color: var(--accent-emerald); }
+    .feature-item:nth-child(3) .feature-icon-wrapper i { color: var(--accent-cyan); }
+    .feature-item:nth-child(4) .feature-icon-wrapper i { color: var(--accent-purple); }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border-color);
+      padding: 40px 0;
+      margin-top: 80px;
+      text-align: center;
+      color: var(--text-tertiary);
+      font-size: 13px;
+    }
+
+    /* Notification Alerts Toast */
+    .toast-overlay {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .toast {
+      background: rgba(10, 10, 15, 0.95);
+      border: 1px solid var(--border-color);
+      border-left: 4px solid var(--accent-cyan);
+      border-radius: 8px;
+      padding: 16px 20px;
+      color: var(--text-primary);
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      backdrop-filter: blur(10px);
+      animation: slideInLeft 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
+
+    .toast.success {
+      border-left-color: var(--accent-emerald);
+    }
+
+    .toast.info {
+      border-left-color: var(--accent-cyan);
+    }
+
+    .toast.error {
+      border-left-color: var(--accent-rose);
+    }
+
+    @keyframes slideInLeft {
+      from { transform: translateX(120%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .toast.fade-out {
+      animation: fadeOut 0.4s ease-out forwards;
+    }
+
+    @keyframes fadeOut {
+      to { opacity: 0; transform: translateY(10px); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Ambient Glow -->
+  <div class="glow-container">
+    <div class="glow-blob glow-cyan"></div>
+    <div class="glow-blob glow-purple"></div>
+  </div>
+
+  <!-- Header -->
+  <header>
+    <div class="container header-content">
+      <div class="logo">
+        <i data-lucide="shield-check"></i>
+        <span>Kanakku Tracker</span>
+      </div>
+      <div class="nav-links">
+        <a href="#architecture"><i data-lucide="git-branch"></i> Core Architecture</a>
+        <a href="#offline-sync"><i data-lucide="refresh-cw"></i> Sync Simulator</a>
+        <a href="#database"><i data-lucide="database"></i> Schema</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="container hero">
+    <h1>Architecture & Data Flow Presentation</h1>
+    <p>Explore the offline-first engineering, state synchronization pipelines, and relational database schema behind the Kanakku application.</p>
+    <div class="tag-container">
+      <div class="tag"><i data-lucide="box"></i> Flutter / Dart</div>
+      <div class="tag"><i data-lucide="refresh-cw"></i> Riverpod State</div>
+      <div class="tag"><i data-lucide="database"></i> Hive Local Cache</div>
+      <div class="tag"><i data-lucide="cloud"></i> Supabase Postgres Backend</div>
+    </div>
+  </section>
+
+  <!-- Section 2: Data Flow Visualizer -->
+  <section class="container" id="architecture">
+    <h2 class="section-title"><i data-lucide="git-commit"></i> Data Pipeline Visualizer</h2>
+    <p class="section-desc">Click through the steps below to animate the lifecycle of a transaction—from user input to background synchronization and remote cloud confirm.</p>
+    
+    <div class="flow-visualizer">
+      <div class="step-list">
+        <div class="glass-card step-card active" onclick="activateStep(1)">
+          <h3><i data-lucide="mouse-pointer-click"></i> 1. User Action</h3>
+          <p>User logs a personal expense (e.g. ₹500 for groceries) or joins a shared bill splitting group.</p>
+        </div>
+        <div class="glass-card step-card" onclick="activateStep(2)">
+          <h3><i data-lucide="refresh-cw"></i> 2. Riverpod State</h3>
+          <p>Local state notifier receives the dispatch and triggers optimistic UI updates instantly.</p>
+        </div>
+        <div class="glass-card step-card" onclick="activateStep(3)">
+          <h3><i data-lucide="database"></i> 3. Hive local persistence</h3>
+          <p>Transactions are written into Hive local boxes for instant load support and offline availability.</p>
+        </div>
+        <div class="glass-card step-card" onclick="activateStep(4)">
+          <h3><i data-lucide="arrow-right-left"></i> 4. Sync queue</h3>
+          <p>If database edits are made, an action (insert/update/delete) is appended to the local sync queue.</p>
+        </div>
+        <div class="glass-card step-card" onclick="activateStep(5)">
+          <h3><i data-lucide="cloud"></i> 5. Supabase confirming</h3>
+          <p>When online, the sync manager pops queue items, pushes to Supabase, and confirms local data state.</p>
+        </div>
+      </div>
+
+      <div class="glass-card diagram-panel">
+        <!-- SVG Connector Lines -->
+        <svg class="lines-overlay">
+          <!-- 1 to 2 -->
+          <path id="line1" class="svg-line" d="M 120 100 Q 120 170 240 170" />
+          <!-- 2 to 3 -->
+          <path id="line2" class="svg-line" d="M 330 200 L 460 200" />
+          <!-- 3 to 4 -->
+          <path id="line3" class="svg-line" d="M 550 230 Q 550 320 400 325" />
+          <!-- 4 to 5 -->
+          <path id="line4" class="svg-line" d="M 310 330 Q 180 330 180 395" />
+        </svg>
+
+        <div class="diagram-stage">
+          <!-- Row 1 -->
+          <div class="row-nodes">
+            <div class="node active" id="node1">
+              <i data-lucide="smartphone"></i>
+              <span>1. User Interface</span>
+            </div>
+            <div style="width: 180px;"></div> <!-- Spacer -->
+          </div>
+          
+          <!-- Row 2 -->
+          <div class="row-nodes">
+            <div class="node" id="node2">
+              <i data-lucide="cpu"></i>
+              <span>2. Riverpod Controller</span>
+            </div>
+            <div class="node" id="node3">
+              <i data-lucide="server"></i>
+              <span>3. Hive Box Storage</span>
+            </div>
+          </div>
+
+          <!-- Row 3 -->
+          <div class="row-nodes">
+            <div class="node" id="node4">
+              <i data-lucide="list-todo"></i>
+              <span>4. Sync Queue Box</span>
+            </div>
+            <div class="node" id="node5">
+              <i data-lucide="cloud-lightning"></i>
+              <span>5. Supabase Node</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 3: Interactive Offline Sync Simulator -->
+  <section class="container" id="offline-sync">
+    <h2 class="section-title"><i data-lucide="refresh-cw"></i> Offline Sync Simulator</h2>
+    <p class="section-desc">Experience Kanakku's offline-first synchronization engine. Disconnect the device connection, log simulated expenses, inspect the pending sync queue, and reconnect to see the background sync engine run.</p>
+    
+    <div class="glass-card sync-simulator-wrapper">
+      <div class="simulator-controls">
+        <h3 style="font-family: var(--font-display); font-size: 20px; font-weight: 700; margin-bottom: 10px;">Simulator Controls</h3>
+        <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">Toggle network settings and add transactions to simulate offline queue buffering.</p>
+        
+        <div style="display: flex; gap: 12px; margin-bottom: 10px;">
+          <button class="sim-button accent-rose" id="btn-disconnect" onclick="setNetworkStatus(false)">
+            <i data-lucide="wifi-off"></i> Go Offline
+          </button>
+          <button class="sim-button accent-emerald" id="btn-connect" onclick="setNetworkStatus(true)" disabled>
+            <i data-lucide="wifi"></i> Go Online (Restore Connection)
+          </button>
+        </div>
+
+        <button class="sim-button accent-cyan" id="btn-add-expense" onclick="addSimulatedExpense('Pizza', 500)">
+          <i data-lucide="plus-circle"></i> Log Expense: Pizza (₹500)
+        </button>
+        <button class="sim-button accent-cyan" id="btn-add-income" onclick="addSimulatedIncome('Freelance', 3500)">
+          <i data-lucide="arrow-down-to-line"></i> Log Income: Freelance (₹3500)
+        </button>
+      </div>
+
+      <div class="simulator-display">
+        <!-- Phone Mockup -->
+        <div class="device-mockup">
+          <div class="device-notch"></div>
+          <div class="device-screen">
+            <div class="screen-header">
+              <span class="screen-title">Kanakku Wallet</span>
+              <span class="conn-status online" id="sim-network-indicator">
+                <i data-lucide="wifi" style="width: 10px; height: 10px;"></i> ONLINE
+              </span>
+            </div>
+
+            <!-- Local Transaction List -->
+            <div class="device-box sim-transactions">
+              <div class="device-box-title">
+                <span>Transactions (Hive Cache)</span>
+                <span id="trans-count" style="font-size: 9px; color: var(--text-secondary)">2 items</span>
+              </div>
+              <div class="sim-list" id="sim-transaction-list">
+                <div class="sim-item synced">
+                  <span class="sim-item-title"><i data-lucide="check-circle" class="icon-synced"></i> Salary</span>
+                  <span class="sim-item-amt emerald">₹25,000</span>
+                </div>
+                <div class="sim-item synced">
+                  <span class="sim-item-title"><i data-lucide="check-circle" class="icon-synced"></i> Coffee</span>
+                  <span class="sim-item-amt rose">₹150</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Sync Queue Visual -->
+            <div class="device-box sim-queue">
+              <div class="device-box-title">
+                <span>Sync Queue Box</span>
+                <span id="queue-count" style="font-size: 9px; color: var(--accent-amber)">0 pending</span>
+              </div>
+              <div class="queue-list" id="sim-queue-list">
+                <div class="queue-empty-text">No pending actions. Sync is idle.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connection channel beam -->
+        <div class="sync-channel">
+          <div class="beam-wrapper">
+            <div class="beam-line connected" id="connection-beam">
+              <div class="beam-pulse" id="sync-beam-pulse"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cloud Database Mockup -->
+        <div class="cloud-database-card active" id="cloud-card">
+          <i data-lucide="database"></i>
+          <div class="cloud-database-card-info">
+            <h4>Supabase DB (Postgres)</h4>
+            <p id="cloud-sync-status">Connected • Synchronized</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 4: Schema Explorer -->
+  <section class="container" id="database">
+    <h2 class="section-title"><i data-lucide="database"></i> Relational Database Schema</h2>
+    <p class="section-desc">Kanakku uses PostgreSQL tables configured inside Supabase with cascading relationships and row-level authorization security checks.</p>
+    
+    <div class="schema-explorer">
+      <!-- Card 1 -->
+      <div class="schema-card">
+        <h3>profiles <span>Table</span></h3>
+        <div class="column-list">
+          <div class="column-item">
+            <span class="col-name">id</span>
+            <span class="col-key">UUID PK</span>
+          </div>
+          <div class="column-item">
+            <span class="col-name">display_name</span>
+            <span class="col-type">VARCHAR</span>
+          </div>
+          <div class="column-item">
+            <span class="col-name">avatar_url</span>
+            <span class="col-type">VARCHAR</span>
+          </div>
+          <div class="column-item">
+            <span class="col-name">currency</span>
+            <span class="col-type">VARCHAR (Default: INR)</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Card 2 -->
+      <div class="schema-card">
+        <h3>groups <span>Table</span></h3>
+        <div class="column-list">
+          <div class="column-item">
+            <span class="col-name">id</span>
+            <span class="col-key">UUID PK</span>
+          </div>
+          <div class="column-item">
+            <span class="col-name">name</span>
+            <span class="col-type">VARCHAR</span>
+          </div>
+          <div class="column-item">
+            <span class="col-name">invite_code</span>
+            <span class="col-type">VARCHAR (Unique 6-char)</span>
+          </div>
+          <div class="column-item">
+            <span class="col-name">created_by</span>
+            <span class="col-type">FK profiles.id</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3 -->
+      <div class="schema-card">
+        <h3>group_members <span>Table</span></h3>
+        <div class="column-list">
+          <div class="column-item">
+            <span class="col-name">id</span>
+            <span class="col-key">UUID PK</span>
+          </div>
+          <div class="column-item">
+            <span class="col-name">group_id</span>
+            <span class="col-type">FK groups.id</span>
+          </div>
+          <div class="column-item">
+            <span class="col-name">user_id</span>
+            <span class="col-type">FK profiles.id</span>
+          </div>
+          <div class="column-item">
+            <span class="col-name">is_admin</span>
+            <span class="col-type">BOOLEAN</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 4 -->
+      <div class="schema-card">
+        <h3>group_expenses <span>Table</span></h3>
+        <div class="column-list">
+          <div class="column-item">
+            <span class="col-name">id</span>
+            <span class="col-key">UUID PK</span>
+          </div>
+          <div class="column-item">
+            <span class="col-name">group_id</span>
+            <span class="col-type">FK groups.id</span>
+          </div>
+          <div class="column-item">
+            <span class="col-name">amount</span>
+            <span class="col-type">DECIMAL</span>
+          </div>
+          <div class="column-item">
+            <span class="col-name">split_type</span>
+            <span class="col-type">equal | custom</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 5: Feature Highlights -->
+  <section class="container">
+    <h2 class="section-title"><i data-lucide="layers"></i> Key Feature Highlights</h2>
+    <p class="section-desc">The core modules driving Kanakku's premium user experience.</p>
+    
+    <div class="features-grid">
+      <div class="glass-card feature-item">
+        <div class="feature-icon-wrapper">
+          <i data-lucide="fingerprint"></i>
+        </div>
+        <h3>App Lock PIN Security</h3>
+        <p>Secures personal transactions and settings data on startup. Supports changing credentials with dynamic verification flows.</p>
+      </div>
+
+      <div class="glass-card feature-item">
+        <div class="feature-icon-wrapper">
+          <i data-lucide="trending-up"></i>
+        </div>
+        <h3>Smart Financial Insights</h3>
+        <p>Integrates monthly category data streams to evaluate runway months and categorizes spending profiles intelligently.</p>
+      </div>
+
+      <div class="glass-card feature-item">
+        <div class="feature-icon-wrapper">
+          <i data-lucide="arrow-right-left"></i>
+        </div>
+        <h3>Group Splits Replication</h3>
+        <p>Replicates split shared expenses automatically to personal transaction caches on confirmation to keep records in sync.</p>
+      </div>
+
+      <div class="glass-card feature-item">
+        <div class="feature-icon-wrapper">
+          <i data-lucide="coins"></i>
+        </div>
+        <h3>Multi-Currency Support</h3>
+        <p>Syncs live exchange rates dynamically, presenting transactions in user preferred currency and showing base conversions.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Toast Area -->
+  <div class="toast-overlay" id="toast-overlay"></div>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <p>Kanakku Application Architecture Presentation • Built with Glassmorphic Aesthetics & Animations</p>
+    </div>
+  </footer>
+
+  <script>
+    // Initialize Lucide Icons
+    lucide.createIcons();
+
+    // Section 2: Data Flow Steps
+    function activateStep(stepNum) {
+      // Update step classes
+      const steps = document.querySelectorAll('.step-card');
+      steps.forEach((step, idx) => {
+        if (idx === (stepNum - 1)) {
+          step.classList.add('active');
+        } else {
+          step.classList.remove('active');
+        }
+      });
+
+      // Update node classes
+      for (let i = 1; i <= 5; i++) {
+        const node = document.getElementById('node' + i);
+        if (i === stepNum) {
+          node.classList.add('active');
+        } else {
+          node.classList.remove('active');
+        }
+      }
+
+      // Update lines
+      for (let i = 1; i <= 4; i++) {
+        const line = document.getElementById('line' + i);
+        if (i < stepNum) {
+          line.classList.add('active');
+        } else {
+          line.classList.remove('active');
+        }
+      }
+    }
+
+    // Section 3: Offline Sync Simulator State
+    let isOnline = true;
+    let pendingQueue = [];
+    let transactions = [
+      { id: 1, title: 'Salary', amount: 25000, type: 'income', synced: true },
+      { id: 2, title: 'Coffee', amount: 150, type: 'expense', synced: true }
+    ];
+
+    function showToast(message, type = 'info') {
+      const overlay = document.getElementById('toast-overlay');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      
+      let icon = 'info';
+      if (type === 'success') icon = 'check-circle';
+      if (type === 'error') icon = 'alert-triangle';
+      
+      toast.innerHTML = `<i data-lucide="${icon}"></i> <span>${message}</span>`;
+      overlay.appendChild(toast);
+      lucide.createIcons();
+
+      setTimeout(() => {
+        toast.classList.add('fade-out');
+        setTimeout(() => toast.remove(), 400);
+      }, 3000);
+    }
+
+    function setNetworkStatus(status) {
+      isOnline = status;
+      const indicator = document.getElementById('sim-network-indicator');
+      const btnDisconnect = document.getElementById('btn-disconnect');
+      const btnConnect = document.getElementById('btn-connect');
+      const beam = document.getElementById('connection-beam');
+      const cloudCard = document.getElementById('cloud-card');
+      const syncStatus = document.getElementById('cloud-sync-status');
+
+      if (isOnline) {
+        indicator.className = 'conn-status online';
+        indicator.innerHTML = '<i data-lucide="wifi" style="width: 10px; height: 10px;"></i> ONLINE';
+        btnDisconnect.removeAttribute('disabled');
+        btnConnect.setAttribute('disabled', 'true');
+        beam.className = 'beam-line connected';
+        cloudCard.className = 'cloud-database-card active';
+        syncStatus.innerText = 'Connected • Synchronized';
+        showToast('Connection established! Sync manager starting...', 'success');
+        
+        // Execute sync if items in queue
+        if (pendingQueue.length > 0) {
+          processSyncQueue();
+        }
+      } else {
+        indicator.className = 'conn-status offline';
+        indicator.innerHTML = '<i data-lucide="wifi-off" style="width: 10px; height: 10px;"></i> OFFLINE';
+        btnDisconnect.setAttribute('disabled', 'true');
+        btnConnect.removeAttribute('disabled');
+        beam.className = 'beam-line';
+        cloudCard.className = 'cloud-database-card';
+        syncStatus.innerText = 'Offline • Disconnected';
+        showToast('Device network disconnected. Database is offline.', 'error');
+      }
+      lucide.createIcons();
+    }
+
+    function addSimulatedExpense(title, amount) {
+      const item = {
+        id: 'temp_' + Date.now(),
+        title: title,
+        amount: amount,
+        type: 'expense',
+        synced: isOnline
+      };
+      
+      // Update local transactions
+      transactions.unshift(item);
+      updateTransactionsUI();
+
+      if (!isOnline) {
+        // Queue it
+        pendingQueue.push({ id: item.id, action: 'insert', title: title, amount: amount, type: 'expense' });
+        updateQueueUI();
+        showToast(`Optimistic Cache update: "${title}" added locally. Queued in Hive sync box.`, 'info');
+      } else {
+        triggerSingleBeamSync(() => {
+          showToast(`Transaction synced successfully: "${title}" saved to Supabase Postgres.`, 'success');
+        });
+      }
+    }
+
+    function addSimulatedIncome(title, amount) {
+      const item = {
+        id: 'temp_' + Date.now(),
+        title: title,
+        amount: amount,
+        type: 'income',
+        synced: isOnline
+      };
+      
+      // Update local transactions
+      transactions.unshift(item);
+      updateTransactionsUI();
+
+      if (!isOnline) {
+        // Queue it
+        pendingQueue.push({ id: item.id, action: 'insert', title: title, amount: amount, type: 'income' });
+        updateQueueUI();
+        showToast(`Optimistic Cache update: "${title}" added locally. Queued in Hive sync box.`, 'info');
+      } else {
+        triggerSingleBeamSync(() => {
+          showToast(`Transaction synced successfully: "${title}" saved to Supabase Postgres.`, 'success');
+        });
+      }
+    }
+
+    function updateTransactionsUI() {
+      const listEl = document.getElementById('sim-transaction-list');
+      const countEl = document.getElementById('trans-count');
+      
+      countEl.innerText = `${transactions.length} items`;
+      listEl.innerHTML = '';
+      
+      transactions.forEach(t => {
+        const itemEl = document.createElement('div');
+        itemEl.className = `sim-item ${t.synced ? 'synced' : 'pending'}`;
+        
+        const icon = t.synced ? 'check-circle' : 'clock';
+        const iconClass = t.synced ? 'icon-synced' : 'icon-pending';
+        const amtClass = t.type === 'income' ? 'emerald' : 'rose';
+        const prefix = t.type === 'income' ? '+' : '-';
+        
+        itemEl.innerHTML = `
+          <span class="sim-item-title"><i data-lucide="${icon}" class="${iconClass}"></i> ${t.title}</span>
+          <span class="sim-item-amt ${amtClass}">${prefix}₹${t.amount.toLocaleString()}</span>
+        `;
+        listEl.appendChild(itemEl);
+      });
+      lucide.createIcons();
+    }
+
+    function updateQueueUI() {
+      const queueList = document.getElementById('sim-queue-list');
+      const queueCount = document.getElementById('queue-count');
+      
+      queueCount.innerText = `${pendingQueue.length} pending`;
+      
+      if (pendingQueue.length === 0) {
+        queueList.innerHTML = '<div class="queue-empty-text">No pending actions. Sync is idle.</div>';
+        return;
+      }
+
+      queueList.innerHTML = '';
+      pendingQueue.forEach(item => {
+        const qItem = document.createElement('div');
+        qItem.className = 'queue-item';
+        qItem.innerHTML = `
+          <span><i data-lucide="save"></i> ${item.action.toUpperCase()}: ${item.title}</span>
+          <span>₹${item.amount}</span>
+        `;
+        queueList.appendChild(qItem);
+      });
+      lucide.createIcons();
+    }
+
+    function triggerSingleBeamSync(onDone) {
+      const pulse = document.getElementById('sync-beam-pulse');
+      pulse.classList.add('active');
+      setTimeout(() => {
+        pulse.classList.remove('active');
+        if (onDone) onDone();
+      }, 1000);
+    }
+
+    function processSyncQueue() {
+      if (pendingQueue.length === 0) return;
+      
+      showToast('Processing sync queue...', 'info');
+      
+      // Temporary block buttons during synchronization
+      document.getElementById('btn-add-expense').setAttribute('disabled', 'true');
+      document.getElementById('btn-add-income').setAttribute('disabled', 'true');
+      
+      let index = 0;
+      function syncNext() {
+        if (index >= pendingQueue.length) {
+          // Finished syncing
+          pendingQueue = [];
+          updateQueueUI();
+          
+          document.getElementById('btn-add-expense').removeAttribute('disabled');
+          document.getElementById('btn-add-income').removeAttribute('disabled');
+          showToast('Sync completed! Offline transactions merged.', 'success');
+          return;
+        }
+
+        const qItem = pendingQueue[index];
+        triggerSingleBeamSync(() => {
+          // Promote transaction status to synced
+          transactions = transactions.map(t => {
+            if (t.id === qItem.id) {
+              return { ...t, synced: true };
+            }
+            return t;
+          });
+          updateTransactionsUI();
+          
+          index++;
+          syncNext();
+        });
+      }
+
+      // Start queue process
+      setTimeout(syncNext, 500);
+    }
+  </script>
+</body>
+</html>
