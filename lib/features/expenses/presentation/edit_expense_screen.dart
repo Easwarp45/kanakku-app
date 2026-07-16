@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:intl/intl.dart';
 import '../../../../shared/widgets/glass_card.dart';
 import '../../../../shared/widgets/custom_text_field.dart';
 import '../../../../shared/widgets/gradient_button.dart';
@@ -26,6 +27,7 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
   late final ValueNotifier<String> _selectedCategory;
   bool _isSaving = false;
   String _selectedCurrency = 'INR';
+  late DateTime _selectedDateTime;
 
   final List<String> _categories = [
     'Food & Dining',
@@ -81,6 +83,71 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
     String dbCat = widget.expense['category']?.toString() ?? 'other';
     String displayCat = _enumToCategory[dbCat] ?? _categories.first;
     _selectedCategory = ValueNotifier<String>(displayCat);
+
+    final dateStr = widget.expense['expense_date']?.toString() ?? widget.expense['created_at']?.toString();
+    _selectedDateTime = dateStr != null ? (DateTime.tryParse(dateStr) ?? DateTime.now()) : DateTime.now();
+  }
+
+  Future<void> _selectDateTime() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _selectedDateTime,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.accentCyan,
+              surface: AppColors.bgElevated,
+              onSurface: AppColors.textPrimary,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (date == null) return;
+
+    if (!mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_selectedDateTime),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.accentCyan,
+              surface: AppColors.bgElevated,
+              onSurface: AppColors.textPrimary,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (time != null) {
+      setState(() {
+        _selectedDateTime = DateTime(
+          date.year,
+          date.month,
+          date.day,
+          time.hour,
+          time.minute,
+        );
+      });
+    } else {
+      setState(() {
+        _selectedDateTime = DateTime(
+          date.year,
+          date.month,
+          date.day,
+          _selectedDateTime.hour,
+          _selectedDateTime.minute,
+        );
+      });
+    }
   }
 
   Future<void> _updateExpense() async {
@@ -113,6 +180,7 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
             'description': finalDesc,
             'amount': _selectedCurrency == 'INR' ? originalAmount : baseAmount,
             'category': _categoryToEnum[_selectedCategory.value] ?? 'other',
+            'expense_date': _selectedDateTime.toIso8601String(),
           }
         );
         
@@ -171,8 +239,8 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       CustomTextField(
-                        label: 'Description',
-                        hint: 'What was this for?',
+                        label: 'Custom Name / Description',
+                        hint: 'Enter name (e.g. McDonald\'s)',
                         controller: _descController,
                         prefixIcon: const Icon(LucideIcons.alignLeft, color: AppColors.textTertiary),
                         validator: (v) => v!.isEmpty ? 'Required' : null,
@@ -189,6 +257,7 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
                       const SizedBox(height: 12),
                       _buildCategorySelector(),
                       const SizedBox(height: 24),
+                      _buildDateSelector(),
                     ],
                   ),
                 ),
@@ -367,6 +436,33 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
           );
         },
       ),
+      ),
+    );
+  }
+
+  Widget _buildDateSelector() {
+    return GestureDetector(
+      onTap: _selectDateTime,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Date & Time', style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            decoration: BoxDecoration(color: AppColors.bgSecondary, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.border)),
+            child: Row(
+              children: [
+                const Icon(LucideIcons.calendar, color: AppColors.textTertiary, size: 20),
+                const SizedBox(width: 12),
+                Text(
+                  DateFormat('MMM dd, yyyy  •  hh:mm a').format(_selectedDateTime),
+                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -5,6 +5,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/providers/preferences_provider.dart';
 import '../../../core/providers/auth_provider.dart';
+import '../../../core/utils/security_helper.dart';
 
 enum PasscodeMode {
   setup,
@@ -117,7 +118,7 @@ class _PasscodeScreenState extends ConsumerState<PasscodeScreen> with SingleTick
       if (!_changeModeVerified) {
         // Stage 1: Verify current PIN
         final actualPin = prefs.passcodePin;
-        if (enteredPin == actualPin) {
+        if (SecurityHelper.verifyPasscode(enteredPin, actualPin)) {
           setState(() {
             _changeModeVerified = true;
             _digits.clear();
@@ -192,7 +193,7 @@ class _PasscodeScreenState extends ConsumerState<PasscodeScreen> with SingleTick
       }
     } else {
       final actualPin = prefs.passcodePin;
-      if (enteredPin == actualPin) {
+      if (SecurityHelper.verifyPasscode(enteredPin, actualPin)) {
         if (widget.mode == PasscodeMode.verifyDisable) {
           // Success: Disable lock
           await ref.read(preferencesProvider.notifier).updatePasscodePin('');

@@ -7,7 +7,6 @@ import 'package:share_plus/share_plus.dart';
 import 'dart:io';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/app_bottom_nav.dart';
 import '../../../shared/widgets/glass_card.dart';
 import '../data/expense_service.dart';
 import '../../../core/utils/multi_currency_helper.dart';
@@ -194,7 +193,6 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
           const SizedBox(width: 8),
         ],
       ),
-      bottomNavigationBar: const AppBottomNav(currentIndex: 1),
       body: SafeArea(
         child: RefreshIndicator(
           color: AppColors.accentCyan,
@@ -323,7 +321,7 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
                    );
                 },
                 loading: () => _buildPremiumTotalHeader(0.0),
-                error: (_, __) => _buildPremiumTotalHeader(0.0),
+                error: (_, _) => _buildPremiumTotalHeader(0.0),
               ),
             ),
 
@@ -342,7 +340,14 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
                   sliver: SliverList(
                     delegate: SliverChildBuilderDelegate(
-                      (context, index) => _buildTransactionCard(filtered[index]),
+                      (context, index) {
+                        // Why RepaintBoundary: Isolates painting of each transaction item. 
+                        // In long lists, this prevents paint invalidation from triggering 
+                        // repaints of all visible items during scroll events.
+                        return RepaintBoundary(
+                          child: _buildTransactionCard(filtered[index]),
+                        );
+                      },
                       childCount: filtered.length,
                     ),
                   ),

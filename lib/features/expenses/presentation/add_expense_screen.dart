@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:intl/intl.dart';
 import '../../../../shared/widgets/glass_card.dart';
 import '../../../../shared/widgets/custom_text_field.dart';
 import '../../../../shared/widgets/gradient_button.dart';
@@ -25,6 +26,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
   final ValueNotifier<String> _selectedCategory = ValueNotifier<String>('Food & Dining');
   bool _isSaving = false;
   String _selectedCurrency = 'INR';
+  DateTime _selectedDateTime = DateTime.now();
 
   final List<String> _categories = [
     'Food & Dining',
@@ -53,6 +55,68 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
     _selectedCurrency = supportedCurrencies[prefs.currencyIndex].code;
   }
 
+  Future<void> _selectDateTime() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _selectedDateTime,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.accentCyan,
+              surface: AppColors.bgElevated,
+              onSurface: AppColors.textPrimary,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (date == null) return;
+
+    if (!mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_selectedDateTime),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.accentCyan,
+              surface: AppColors.bgElevated,
+              onSurface: AppColors.textPrimary,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (time != null) {
+      setState(() {
+        _selectedDateTime = DateTime(
+          date.year,
+          date.month,
+          date.day,
+          time.hour,
+          time.minute,
+        );
+      });
+    } else {
+      setState(() {
+        _selectedDateTime = DateTime(
+          date.year,
+          date.month,
+          date.day,
+          _selectedDateTime.hour,
+          _selectedDateTime.minute,
+        );
+      });
+    }
+  }
+
   Future<void> _saveExpense() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isSaving = true);
@@ -77,14 +141,18 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
           finalDesc = '${mcData.toToken()} $finalDesc';
         }
 
-        // Send ONLY columns that exist in the DB schema:
-        // amount, category (expense_category enum), description, payment_method, expense_date
+        // Send columns that match the DB schema exactly.
+        // WHY currency is included: The expenses table has a `currency` column.
+        // The Web app sends it; omitting it from Flutter caused a NOT NULL
+        // constraint failure on the server (column has no server-side default).
         await ref.read(expenseServiceProvider).addExpense({
           'description': finalDesc,
+          'notes': finalDesc,
           'amount': _selectedCurrency == 'INR' ? originalAmount : baseAmount,
           'category': _categoryToEnum[_selectedCategory.value] ?? 'other',
           'payment_method': 'upi',
-          'expense_date': DateTime.now().toIso8601String().split('T')[0],
+          'expense_date': _selectedDateTime.toIso8601String().split('T')[0],
+          'currency': _selectedCurrency == 'INR' ? 'INR' : 'INR', // always store in base INR
         });
         
         // Force refresh the stream to show new data immediately
@@ -142,8 +210,8 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       CustomTextField(
-                        label: 'Description',
-                        hint: 'What was this for?',
+                        label: 'Custom Name / Description',
+                        hint: 'Enter name (e.g. McDonald\'s)',
                         controller: _descController,
                         prefixIcon: const Icon(LucideIcons.alignLeft, color: AppColors.textTertiary),
                         validator: (v) => v!.isEmpty ? 'Required' : null,
@@ -355,39 +423,23 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
 
   Widget _buildDateSelector() {
     return GestureDetector(
-      onTap: () async {
-        await showDatePicker(
-          context: context,
-          initialDate: DateTime.now(),
-          firstDate: DateTime(2020),
-          lastDate: DateTime(2100),
-          builder: (context, child) {
-            return Theme(
-              data: Theme.of(context).copyWith(
-                colorScheme: const ColorScheme.dark(
-                  primary: AppColors.accentCyan,
-                  surface: AppColors.bgElevated,
-                  onSurface: AppColors.textPrimary,
-                ),
-              ),
-              child: child!,
-            );
-          },
-        );
-      },
+      onTap: _selectDateTime,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Date', style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
+          const Text('Date & Time', style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
             decoration: BoxDecoration(color: AppColors.bgSecondary, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.border)),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(LucideIcons.calendar, color: AppColors.textTertiary, size: 20),
-                SizedBox(width: 12),
-                Text('Today', style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
+                const Icon(LucideIcons.calendar, color: AppColors.textTertiary, size: 20),
+                const SizedBox(width: 12),
+                Text(
+                  DateFormat('MMM dd, yyyy  •  hh:mm a').format(_selectedDateTime),
+                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.w500),
+                ),
               ],
             ),
           ),

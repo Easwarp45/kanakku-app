@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
-import '../../../shared/widgets/app_bottom_nav.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/providers/auth_provider.dart';
@@ -184,9 +183,13 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
 
     final score = (savingsScore + budgetScore + runwayScore).clamp(10, 100);
     String healthCategory = 'AVERAGE';
-    if (score >= 80) healthCategory = 'EXCELLENT';
-    else if (score >= 60) healthCategory = 'GOOD';
-    else if (score < 40) healthCategory = 'CRITICAL';
+    if (score >= 80) {
+      healthCategory = 'EXCELLENT';
+    } else if (score >= 60) {
+      healthCategory = 'GOOD';
+    } else if (score < 40) {
+      healthCategory = 'CRITICAL';
+    }
 
     // 2. Pattern Top Spend Category
     final allCategoryExpenses = <String, double>{};
@@ -362,9 +365,13 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
 
   Widget _buildHeroHealthCard(InsightsQuickStats stats) {
     Color healthColor = AppColors.accentAmber;
-    if (stats.healthScore >= 80) healthColor = AppColors.accentEmerald;
-    else if (stats.healthScore >= 60) healthColor = AppColors.accentCyan;
-    else if (stats.healthScore < 40) healthColor = AppColors.accentRose;
+    if (stats.healthScore >= 80) {
+      healthColor = AppColors.accentEmerald;
+    } else if (stats.healthScore >= 60) {
+      healthColor = AppColors.accentCyan;
+    } else if (stats.healthScore < 40) {
+      healthColor = AppColors.accentRose;
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -375,18 +382,18 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
           gradient: LinearGradient(
             colors: [
               AppColors.bgElevated,
-              AppColors.bgSecondary.withOpacity(0.8),
+              AppColors.bgSecondary.withValues(alpha: 0.8),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           border: Border.all(
-            color: healthColor.withOpacity(0.3),
+            color: healthColor.withValues(alpha: 0.3),
             width: 1.5,
           ),
           boxShadow: [
             BoxShadow(
-              color: healthColor.withOpacity(0.08),
+              color: healthColor.withValues(alpha: 0.08),
               blurRadius: 20,
               offset: const Offset(0, 8),
             ),
@@ -430,7 +437,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
-                              color: healthColor.withOpacity(0.15),
+                              color: healthColor.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
@@ -522,7 +529,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 24),
         itemCount: categories.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final cat = categories[index];
           final isSelected = _selectedCategory == cat['id'];
@@ -536,10 +543,10 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: isSelected ? AppColors.accentCyan.withOpacity(0.12) : AppColors.bgSecondary,
+                color: isSelected ? AppColors.accentCyan.withValues(alpha: 0.12) : AppColors.bgSecondary,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
-                  color: isSelected ? AppColors.accentCyan.withOpacity(0.3) : AppColors.border,
+                  color: isSelected ? AppColors.accentCyan.withValues(alpha: 0.3) : AppColors.border,
                   width: 1,
                 ),
               ),
@@ -728,12 +735,12 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
         decoration: BoxDecoration(
-          color: AppColors.bgElevated.withOpacity(0.55),
+          color: AppColors.bgElevated.withValues(alpha: 0.55),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: AppColors.border, width: 1),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.08),
+              color: Colors.black.withValues(alpha: 0.08),
               blurRadius: 8,
               offset: const Offset(0, 4),
             ),
@@ -748,7 +755,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                 Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: item.color.withOpacity(0.12),
+                    color: item.color.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(item.icon, color: item.color, size: 18),
@@ -758,7 +765,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                     decoration: BoxDecoration(
-                      color: item.color.withOpacity(0.12),
+                      color: item.color.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: FittedBox(
@@ -942,7 +949,6 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
           }),
         ),
       ),
-      bottomNavigationBar: const AppBottomNav(currentIndex: 4),
     );
   }
 
@@ -1040,7 +1046,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                       value: score / 100,
                       strokeWidth: 10,
                       color: color,
-                      backgroundColor: color.withOpacity(0.1),
+                      backgroundColor: color.withValues(alpha: 0.1),
                     ),
                   ),
                   Column(
@@ -1228,7 +1234,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: AppColors.bgSecondary.withOpacity(0.55),
+                  color: AppColors.bgSecondary.withValues(alpha: 0.55),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: AppColors.borderSubtle),
                 ),
@@ -1331,19 +1337,19 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                     child: Container(
                       decoration: BoxDecoration(
                         color: isSelected
-                            ? AppColors.accentRose.withOpacity(0.9)
-                            : AppColors.accentRose.withOpacity(ratio == 0 ? 0.05 : 0.1 + (ratio * 0.7)),
+                            ? AppColors.accentRose.withValues(alpha: 0.9)
+                            : AppColors.accentRose.withValues(alpha: ratio == 0 ? 0.05 : 0.1 + (ratio * 0.7)),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                           color: isSelected
                               ? AppColors.textPrimary
-                              : (ratio > 0 ? AppColors.accentRose.withOpacity(0.4) : AppColors.borderSubtle),
+                              : (ratio > 0 ? AppColors.accentRose.withValues(alpha: 0.4) : AppColors.borderSubtle),
                           width: isSelected ? 2 : 1,
                         ),
                         boxShadow: isSelected
                             ? [
                                 BoxShadow(
-                                  color: AppColors.accentRose.withOpacity(0.4),
+                                  color: AppColors.accentRose.withValues(alpha: 0.4),
                                   blurRadius: 6,
                                   offset: const Offset(0, 1),
                                 )
@@ -1356,7 +1362,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                           style: TextStyle(
                             color: isSelected
                                 ? Colors.black
-                                : (ratio > 0 ? AppColors.textPrimary : AppColors.textSecondary.withOpacity(0.8)),
+                                : (ratio > 0 ? AppColors.textPrimary : AppColors.textSecondary.withValues(alpha: 0.8)),
                             fontSize: 11,
                             fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
                           ),
@@ -1384,10 +1390,10 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                         height: 12,
                         margin: const EdgeInsets.symmetric(horizontal: 2),
                         decoration: BoxDecoration(
-                          color: AppColors.accentRose.withOpacity(opacity),
+                          color: AppColors.accentRose.withValues(alpha: opacity),
                           borderRadius: BorderRadius.circular(3),
                           border: Border.all(
-                            color: AppColors.accentRose.withOpacity(0.15),
+                            color: AppColors.accentRose.withValues(alpha: 0.15),
                             width: 0.5,
                           ),
                         ),
@@ -1445,7 +1451,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: AppColors.bgSecondary.withOpacity(0.5),
+                    color: AppColors.bgSecondary.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: AppColors.borderSubtle),
                   ),
@@ -1512,7 +1518,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                       margin: const EdgeInsets.only(bottom: 12),
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: AppColors.bgSecondary.withOpacity(0.5),
+                        color: AppColors.bgSecondary.withValues(alpha: 0.5),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: AppColors.borderSubtle),
                       ),
@@ -1521,7 +1527,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                           Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: color.withOpacity(0.12),
+                              color: color.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Icon(icon, color: color, size: 18),
@@ -2039,9 +2045,13 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
             Color color = AppColors.accentCyan;
             final lowerTitle = title.toLowerCase();
 
-            if (lowerTitle.contains('netflix')) color = AppColors.accentRose;
-            else if (lowerTitle.contains('spotify')) color = AppColors.accentEmerald;
-            else if (lowerTitle.contains('prime') || lowerTitle.contains('amazon')) color = AppColors.accentCyan;
+            if (lowerTitle.contains('netflix')) {
+              color = AppColors.accentRose;
+            } else if (lowerTitle.contains('spotify')) {
+              color = AppColors.accentEmerald;
+            } else if (lowerTitle.contains('prime') || lowerTitle.contains('amazon')) {
+              color = AppColors.accentCyan;
+            }
 
             final prefs = ref.watch(preferencesProvider);
             final code = supportedCurrencies[prefs.currencyIndex].code;
@@ -2062,7 +2072,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                   Container(
                     width: 40,
                     height: 40,
-                    decoration: BoxDecoration(color: color.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
+                    decoration: BoxDecoration(color: color.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(10)),
                     child: Icon(LucideIcons.playCircle, color: color),
                   ),
                   const SizedBox(width: 16),
@@ -2399,7 +2409,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
         Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.12),
+            color: color.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(icon, color: color, size: 20),
@@ -2438,9 +2448,9 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2468,11 +2478,11 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: color.withOpacity(unlocked ? 0.2 : 0.05),
+            color: color.withValues(alpha: unlocked ? 0.2 : 0.05),
             shape: BoxShape.circle,
-            border: Border.all(color: color.withOpacity(unlocked ? 1.0 : 0.2), width: 1.5),
+            border: Border.all(color: color.withValues(alpha: unlocked ? 1.0 : 0.2), width: 1.5),
           ),
-          child: Icon(icon, color: color.withOpacity(unlocked ? 1.0 : 0.3), size: 32),
+          child: Icon(icon, color: color.withValues(alpha: unlocked ? 1.0 : 0.3), size: 32),
         ),
         const SizedBox(height: 12),
         Text(title, style: TextStyle(color: unlocked ? AppColors.textPrimary : AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
@@ -2681,7 +2691,7 @@ class _GoalsManagerWidgetState extends ConsumerState<GoalsManagerWidget> {
             icon: const Icon(LucideIcons.plus, size: 18),
             label: const Text('Add Goal'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.accentCyan.withOpacity(0.12),
+              backgroundColor: AppColors.accentCyan.withValues(alpha: 0.12),
               foregroundColor: AppColors.accentCyan,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
@@ -2765,7 +2775,7 @@ class _GoalsManagerWidgetState extends ConsumerState<GoalsManagerWidget> {
           icon: const Icon(LucideIcons.plus, size: 18),
           label: const Text('Add New Goal'),
           style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.accentCyan.withOpacity(0.12),
+            backgroundColor: AppColors.accentCyan.withValues(alpha: 0.12),
             foregroundColor: AppColors.accentCyan,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),

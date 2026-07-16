@@ -15,6 +15,22 @@ import 'core/providers/preferences_provider.dart';
 import 'core/providers/auth_provider.dart';
 import 'features/auth/presentation/passcode_screen.dart';
 
+// Why themeModeProvider: The full preferencesProvider holds currency, avatar,
+// app-lock, budget, passcode, and more. Watching it directly in KanakkuApp.build()
+// means ANY preference change (e.g. toggling notifications) rebuilds the entire
+// MaterialApp tree. This lightweight selector rebuilds only when themeIndex changes.
+final themeModeProvider = Provider<ThemeMode>((ref) {
+  final themeIndex = ref.watch(preferencesProvider.select((p) => p.themeIndex));
+  switch (themeIndex) {
+    case 1:
+      return ThemeMode.dark;
+    case 2:
+      return ThemeMode.light;
+    default:
+      return ThemeMode.system;
+  }
+});
+
 Future<void> main() async {
   // Protect the entire app in a zone so unhandled async errors are caught
   // and logged rather than silently killing the process.
@@ -101,23 +117,10 @@ class KanakkuApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Watch only the lightweight selectors — avoids full MaterialApp rebuild
+    // on unrelated preference changes (currency, avatar, budget, etc.).
     final router = ref.watch(routerProvider);
-    final prefs = ref.watch(preferencesProvider);
-    
-    ThemeMode themeMode;
-    switch (prefs.themeIndex) {
-      case 0:
-        themeMode = ThemeMode.system;
-        break;
-      case 1:
-        themeMode = ThemeMode.dark;
-        break;
-      case 2:
-        themeMode = ThemeMode.light;
-        break;
-      default:
-        themeMode = ThemeMode.dark;
-    }
+    final themeMode = ref.watch(themeModeProvider);
 
     return MaterialApp.router(
       title: 'Kanakku Expense Tracker',

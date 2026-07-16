@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../../shared/widgets/glass_card.dart';
-import '../../../shared/widgets/app_bottom_nav.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../data/group_service.dart';
@@ -113,16 +112,16 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
                 try {
                   await ref.read(groupServiceProvider).joinGroup(code);
                   ref.invalidate(groupsStreamProvider);
-                  if (mounted) {
+                  if (context.mounted) {
                     Navigator.pop(context);
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Welcome to the group!')));
                   }
                 } catch (e) {
-                  if (mounted) {
+                  if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.accentRose));
                   }
                 } finally {
-                  if (mounted) setDialogState(() => isJoining = false);
+                  if (context.mounted) setDialogState(() => isJoining = false);
                 }
               },
               style: ElevatedButton.styleFrom(
@@ -172,7 +171,7 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
               SliverToBoxAdapter(child: _buildHeader(context)),
               SliverToBoxAdapter(child: _buildSearchBar()),
               SliverToBoxAdapter(child: const SizedBox(height: 24)),
-              SliverToBoxAdapter(child: _buildSummaryCard(ref, groupsAsync, currentUserId)),
+              SliverToBoxAdapter(child: _SummaryCard(groupsAsync: groupsAsync, currentUserId: currentUserId)),
               SliverToBoxAdapter(child: const SizedBox(height: 24)),
               SliverToBoxAdapter(child: _buildQuickActions(context)),
               SliverToBoxAdapter(child: const SizedBox(height: 24)),
@@ -210,7 +209,12 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
                         final group = filteredGroups[index];
-                        return GroupCard(group: group, currentUserId: currentUserId);
+                        // Why RepaintBoundary: Isolates painting of each group card. 
+                        // When scrolling or tapping on a card, only this specific card's 
+                        // display list/layer is redrawn, avoiding full-screen repaint overhead.
+                        return RepaintBoundary(
+                          child: GroupCard(group: group, currentUserId: currentUserId),
+                        );
                       },
                       childCount: filteredGroups.length,
                     ),
@@ -224,7 +228,6 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
           ),
         ),
       ),
-      bottomNavigationBar: const AppBottomNav(currentIndex: 3),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/create-group'),
         backgroundColor: AppColors.accentPurple,
@@ -261,79 +264,6 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
     );
   }
 
-
-  Widget _buildSummaryCard(WidgetRef ref, AsyncValue<List<Map<String, dynamic>>> groupsAsync, String currentUserId) {
-    final overallBalance = ref.watch(overallNetBalanceProvider);
-    final isOwed = overallBalance >= 0;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          gradient: const LinearGradient(
-            colors: [AppColors.accentPurple, AppColors.accentCyan],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          boxShadow: [BoxShadow(color: AppColors.accentPurple.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 8))],
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        isOwed ? LucideIcons.arrowUpRight : LucideIcons.arrowDownLeft,
-                        color: Colors.white.withValues(alpha: 0.8),
-                        size: 16,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        isOwed ? 'You are owed' : 'You owe',
-                        style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13, fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '₹${overallBalance.abs().toStringAsFixed(2)}',
-                    style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.5),
-                  ),
-                ],
-              ),
-            ),
-            Container(width: 1, height: 40, color: Colors.white.withValues(alpha: 0.2)),
-            const SizedBox(width: 20),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(LucideIcons.users, color: Colors.white.withValues(alpha: 0.8), size: 16),
-                      const SizedBox(width: 6),
-                      Text('Groups', style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13, fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  groupsAsync.when(
-                    data: (g) => Text('${g.length}', style: AppTheme.moneyStyle.copyWith(color: Colors.white, fontSize: 24)),
-                    loading: () => const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
-                    error: (_, __) => const Text('0', style: TextStyle(color: Colors.white)),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _buildQuickActions(BuildContext context) {
     return Padding(
@@ -436,7 +366,7 @@ class GroupCard extends ConsumerWidget {
                     height: 48,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [AppColors.accentCyan.withOpacity(0.2), AppColors.accentPurple.withOpacity(0.2)],
+                        colors: [AppColors.accentCyan.withValues(alpha: 0.2), AppColors.accentPurple.withValues(alpha: 0.2)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -558,9 +488,9 @@ class GroupCard extends ConsumerWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                             decoration: BoxDecoration(
-                              color: statusColor.withOpacity(0.06),
+                              color: statusColor.withValues(alpha: 0.06),
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: statusColor.withOpacity(0.15)),
+                              border: Border.all(color: statusColor.withValues(alpha: 0.15)),
                             ),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -580,16 +510,104 @@ class GroupCard extends ConsumerWidget {
                       );
                     },
                     loading: () => const Center(child: Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator(color: AppColors.accentPurple))),
-                    error: (_, __) => const Text('Error loading balances', style: TextStyle(color: AppColors.accentRose, fontSize: 12)),
+                    error: (_, _) => const Text('Error loading balances', style: TextStyle(color: AppColors.accentRose, fontSize: 12)),
                   ),
                   loading: () => const Center(child: Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator(color: AppColors.accentPurple))),
-                  error: (_, __) => const SizedBox.shrink(),
+                  error: (_, _) => const SizedBox.shrink(),
                 ),
                 loading: () => const Center(child: Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator(color: AppColors.accentPurple))),
-                error: (_, __) => const SizedBox.shrink(),
+                error: (_, _) => const SizedBox.shrink(),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// Why _SummaryCard: Watching overallNetBalanceProvider inside the main screen rebuilds 
+// the entire layout tree (search input, list view structure, button bindings) every time 
+// a balance changes. Extracting the card to a standalone ConsumerWidget limits the rebuild 
+// scope of the net balance watcher to only this card, keeping scrolling on the list smooth.
+class _SummaryCard extends ConsumerWidget {
+  final AsyncValue<List<Map<String, dynamic>>> groupsAsync;
+  final String currentUserId;
+
+  const _SummaryCard({
+    required this.groupsAsync,
+    required this.currentUserId,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final overallBalance = ref.watch(overallNetBalanceProvider);
+    final isOwed = overallBalance >= 0;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: const LinearGradient(
+            colors: [AppColors.accentPurple, AppColors.accentCyan],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          boxShadow: [BoxShadow(color: AppColors.accentPurple.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 8))],
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        isOwed ? LucideIcons.arrowUpRight : LucideIcons.arrowDownLeft,
+                        color: Colors.white.withValues(alpha: 0.8),
+                        size: 16,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        isOwed ? 'You are owed' : 'You owe',
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '₹${overallBalance.abs().toStringAsFixed(2)}',
+                    style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.5),
+                  ),
+                ],
+              ),
+            ),
+            Container(width: 1, height: 40, color: Colors.white.withValues(alpha: 0.2)),
+            const SizedBox(width: 20),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(LucideIcons.users, color: Colors.white.withValues(alpha: 0.8), size: 16),
+                      const SizedBox(width: 6),
+                      Text('Groups', style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  groupsAsync.when(
+                    data: (g) => Text('${g.length}', style: AppTheme.moneyStyle.copyWith(color: Colors.white, fontSize: 24)),
+                    loading: () => const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+                    error: (_, _) => const Text('0', style: TextStyle(color: Colors.white)),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

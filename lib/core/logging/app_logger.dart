@@ -11,33 +11,43 @@ class AppLogger {
 
   void v(dynamic message) {
     try {
-      debugPrint('[VERBOSE] $message');
+      if (kDebugMode) {
+        debugPrint('[VERBOSE] $message');
+      }
     } catch (_) {}
   }
 
   void d(dynamic message) {
     try {
-      debugPrint('[DEBUG] $message');
+      if (kDebugMode) {
+        debugPrint('[DEBUG] $message');
+      }
     } catch (_) {}
   }
 
   void i(dynamic message) {
     try {
-      debugPrint('[INFO] $message');
+      if (kDebugMode) {
+        debugPrint('[INFO] $message');
+      }
     } catch (_) {}
   }
 
   void w(dynamic message) {
     try {
-      debugPrint('[WARN] $message');
+      if (kDebugMode) {
+        debugPrint('[WARN] $message');
+      }
     } catch (_) {}
   }
 
   void e(dynamic message, [dynamic error, StackTrace? stackTrace]) {
     try {
-      debugPrint('[ERROR] $message');
-      if (error != null) debugPrint('  Error: $error');
-      if (stackTrace != null) debugPrint('  Stack: $stackTrace');
+      if (kDebugMode) {
+        debugPrint('[ERROR] $message');
+        if (error != null) debugPrint('  Error: $error');
+        if (stackTrace != null) debugPrint('  Stack: $stackTrace');
+      }
     } catch (_) {}
   }
 

@@ -28,36 +28,54 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
       try {
-        final res = await ref.read(authServiceProvider).signUp(
+        // WHY we pass displayName here:
+        // AuthService.signUp() forwards it as data: {'full_name': displayName}.
+        // The on_auth_user_created database trigger reads NEW.raw_user_meta_data->>'full_name'
+        // to populate the profiles.display_name column atomically in the same transaction
+        // as auth.users INSERT.
+        await ref.read(authServiceProvider).signUp(
               _emailController.text.trim(),
               _passwordController.text,
+              displayName: _nameController.text.trim(),
             );
-            
-        // Assuming we want to insert user meta data into a 'users' table
-        if (res.user != null) {
-          await Supabase.instance.client.from('profiles').insert({
-            'user_id': res.user!.id,
-            'display_name': _nameController.text.trim(),
-            'language': 'en',
-            'currency': 'INR',
-          });
-        }
-        
+
+        // WHY we removed profiles.upsert() that was previously here:
+        //
+        // The database has an on_auth_user_created trigger (SECURITY DEFINER)
+        // that fires atomically when auth.users is inserted. It creates the
+        // profiles row via SECURITY DEFINER, bypassing RLS.
+        //
+        // The old code also called profiles.upsert() immediately after signUp().
+        // This caused a race condition: both the trigger AND Flutter tried to
+        // INSERT the same user_id at the same millisecond inside the same
+        // transaction window. The collision rolled back auth.users entirely,
+        // producing the "Database error saving new user" (unexpected_failure) error.
+        //
+        // The trigger (now using ON CONFLICT DO NOTHING) handles profile creation.
+        // Profile updates (currency, language) happen later via
+        // AuthService.updateProfile() once the user is authenticated.
+
         await LocalCacheService.cacheData('is_logged_in', true);
-        
+
         if (mounted) {
           context.go('/dashboard');
         }
       } on AuthException catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(e.message), backgroundColor: AppColors.accentRose),
+            SnackBar(
+              content: Text(e.message),
+              backgroundColor: AppColors.accentRose,
+            ),
           );
         }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('An unexpected error occurred'), backgroundColor: AppColors.accentRose),
+            SnackBar(
+              content: Text('Registration failed: ${e.toString()}'),
+              backgroundColor: AppColors.accentRose,
+            ),
           );
         }
       } finally {
@@ -115,7 +133,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                       children: [
                         CustomTextField(
                           label: 'Full Name',
-                          hint: 'Enter your designation',
+                          hint: 'Enter your full name',
                           controller: _nameController,
                           prefixIcon: const Icon(LucideIcons.user, color: AppColors.textTertiary),
                           validator: (value) => value!.isEmpty ? 'Name is required' : null,
@@ -161,6 +179,21 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                         child: const Text('Sign In'),
                       ),
                     ],
+                  ),
+                  Center(
+                    child: TextButton(
+                      onPressed: () => context.push('/forgot-password'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.textTertiary,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: const Text(
+                        'Forgot your password?',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    ),
                   ),
                 ],
               ),

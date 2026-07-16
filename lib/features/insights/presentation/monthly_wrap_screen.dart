@@ -113,7 +113,7 @@ class MonthlyWrapScreen extends ConsumerWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         gradient: const LinearGradient(colors: [Color(0xFF0e3a4a), AppColors.accentCyan], begin: Alignment.topLeft, end: Alignment.bottomRight),
-        boxShadow: [BoxShadow(color: AppColors.accentCyan.withOpacity(0.25), blurRadius: 24, offset: const Offset(0, 8))],
+        boxShadow: [BoxShadow(color: AppColors.accentCyan.withValues(alpha: 0.25), blurRadius: 24, offset: const Offset(0, 8))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -153,7 +153,7 @@ class MonthlyWrapScreen extends ConsumerWidget {
 
     return GlassCard(
       margin: EdgeInsets.zero,
-      borderColor: hasCompleted ? AppColors.accentEmerald.withOpacity(0.4) : AppColors.borderSubtle,
+      borderColor: hasCompleted ? AppColors.accentEmerald.withValues(alpha: 0.4) : AppColors.borderSubtle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -162,7 +162,7 @@ class MonthlyWrapScreen extends ConsumerWidget {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: (hasCompleted ? AppColors.accentEmerald : AppColors.accentCyan).withOpacity(0.12),
+                  color: (hasCompleted ? AppColors.accentEmerald : AppColors.accentCyan).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(hasCompleted ? LucideIcons.trophy : LucideIcons.target, color: hasCompleted ? AppColors.accentEmerald : AppColors.accentCyan, size: 22),
@@ -177,7 +177,7 @@ class MonthlyWrapScreen extends ConsumerWidget {
             const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: AppColors.accentEmerald.withOpacity(0.08), borderRadius: BorderRadius.circular(10)),
+              decoration: BoxDecoration(color: AppColors.accentEmerald.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -211,7 +211,7 @@ class MonthlyWrapScreen extends ConsumerWidget {
             children: [
               Container(
                 padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: AppColors.accentCyan.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
+                decoration: BoxDecoration(color: AppColors.accentCyan.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
                 child: const Icon(LucideIcons.database, color: AppColors.accentCyan, size: 22),
               ),
               const SizedBox(width: 12),
@@ -236,7 +236,7 @@ class MonthlyWrapScreen extends ConsumerWidget {
 
     return GlassCard(
       margin: EdgeInsets.zero,
-      borderColor: AppColors.accentPurple.withOpacity(0.3),
+      borderColor: AppColors.accentPurple.withValues(alpha: 0.3),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -244,7 +244,7 @@ class MonthlyWrapScreen extends ConsumerWidget {
             children: [
               Container(
                 padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: AppColors.accentPurple.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
+                decoration: BoxDecoration(color: AppColors.accentPurple.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
                 child: const Icon(LucideIcons.lightbulb, color: AppColors.accentPurple, size: 22),
               ),
               const SizedBox(width: 12),

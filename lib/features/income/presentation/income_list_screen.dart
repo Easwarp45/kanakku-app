@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:intl/intl.dart';
 import '../../../shared/widgets/glass_card.dart';
-import '../../../shared/widgets/app_bottom_nav.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/providers/preferences_provider.dart';
@@ -137,7 +136,6 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
           ),
         ),
       ),
-      bottomNavigationBar: const AppBottomNav(currentIndex: 2),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/add-income'),
         backgroundColor: AppColors.accentEmerald,
@@ -412,8 +410,7 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
               onPrimary: Colors.white,
               surface: AppColors.bgSecondary,
               onSurface: AppColors.textPrimary,
-            ),
-            dialogBackgroundColor: AppColors.bgPrimary,
+            ), dialogTheme: DialogThemeData(backgroundColor: AppColors.bgPrimary),
           ),
           child: child!,
         );

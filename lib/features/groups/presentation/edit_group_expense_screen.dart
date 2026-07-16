@@ -197,7 +197,7 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
 
                     return ListTile(
                        leading: CircleAvatar(
-                        backgroundColor: AppColors.accentCyan.withOpacity(0.12),
+                        backgroundColor: AppColors.accentCyan.withValues(alpha: 0.12),
                         child: Text(
                           displayName.isEmpty ? 'U' : displayName.substring(0, 1).toUpperCase(),
                           style: const TextStyle(color: AppColors.accentCyan, fontWeight: FontWeight.w800),
@@ -714,7 +714,7 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
                                   shrinkWrap: true,
                                   physics: const NeverScrollableScrollPhysics(),
                                   itemCount: members.length,
-                                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                                  separatorBuilder: (_, _) => const SizedBox(height: 12),
                                   itemBuilder: (context, idx) {
                                     final m = members[idx];
                                     final userId = m['user_id'] as String;
@@ -730,7 +730,7 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
                                       children: [
                                         CircleAvatar(
                                           radius: 16,
-                                          backgroundColor: AppColors.accentCyan.withOpacity(0.12),
+                                          backgroundColor: AppColors.accentCyan.withValues(alpha: 0.12),
                                           child: Text(
                                             displayName.isEmpty ? 'U' : displayName.substring(0, 1).toUpperCase(),
                                             style: const TextStyle(color: AppColors.accentCyan, fontSize: 12, fontWeight: FontWeight.w800),
@@ -786,9 +786,9 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
                                     duration: const Duration(milliseconds: 300),
                                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                                     decoration: BoxDecoration(
-                                      color: (isMatched ? AppColors.accentEmerald : AppColors.accentRose).withOpacity(0.08),
+                                      color: (isMatched ? AppColors.accentEmerald : AppColors.accentRose).withValues(alpha: 0.08),
                                       borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: (isMatched ? AppColors.accentEmerald : AppColors.accentRose).withOpacity(0.2)),
+                                      border: Border.all(color: (isMatched ? AppColors.accentEmerald : AppColors.accentRose).withValues(alpha: 0.2)),
                                     ),
                                     child: Row(
                                       children: [

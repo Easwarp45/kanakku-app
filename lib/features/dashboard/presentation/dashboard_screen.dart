@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../../shared/widgets/glass_card.dart';
-import '../../../shared/widgets/app_bottom_nav.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../expenses/data/expense_service.dart';
@@ -13,22 +12,60 @@ import '../../groups/data/group_service.dart';
 import '../../../core/providers/preferences_provider.dart';
 import '../../../core/utils/multi_currency_helper.dart';
 
+// Why recentCombinedTransactionsProvider: Instead of combining, sorting, and filtering 
+// raw streams (expenses and income) on every build call of the dashboard or parent tree 
+// (which gets rebuilt frequently on navigation and wallet status updates), we cache 
+// the computed list in this Riverpod autoDispose provider. Re-evaluation only occurs 
+// when the underlying database stream values change. This dramatically reduces layout phase 
+// sorting overhead and avoids redundant garbage collection of temporary mapped maps.
+final recentCombinedTransactionsProvider = Provider.autoDispose<AsyncValue<List<Map<String, dynamic>>>>((ref) {
+  final expensesAsync = ref.watch(expensesStreamProvider);
+  final incomeAsync = ref.watch(inc.incomeStreamProvider);
+
+  if (expensesAsync.isLoading || incomeAsync.isLoading) {
+    return const AsyncValue.loading();
+  }
+  if (expensesAsync.hasError) {
+    return AsyncValue.error(expensesAsync.error!, expensesAsync.stackTrace!);
+  }
+  if (incomeAsync.hasError) {
+    return AsyncValue.error(incomeAsync.error!, incomeAsync.stackTrace!);
+  }
+
+  final expenses = expensesAsync.value ?? [];
+  final income = incomeAsync.value ?? [];
+
+  // Combine both lists
+  final combined = [
+    ...expenses.map((e) => {...e, 'is_legacy_expense': true}),
+    ...income.map((e) => {...e, 'is_new_income': true, 'is_income': true}),
+  ];
+
+  // Sort by the specific domain date (expense_date/income_date) descending
+  combined.sort((a, b) {
+    final dateAStr = a['expense_date']?.toString() ?? a['income_date']?.toString() ?? a['created_at']?.toString() ?? '';
+    final dateBStr = b['expense_date']?.toString() ?? b['income_date']?.toString() ?? b['created_at']?.toString() ?? '';
+    final dateA = DateTime.tryParse(dateAStr) ?? DateTime(1970);
+    final dateB = DateTime.tryParse(dateBStr) ?? DateTime(1970);
+    return dateB.compareTo(dateA);
+  });
+
+  // Filter to current month
+  final now = DateTime.now();
+  final filtered = combined.where((e) {
+    final dateStr = e['expense_date']?.toString() ?? e['income_date']?.toString() ?? e['created_at']?.toString() ?? '';
+    final date = DateTime.tryParse(dateStr);
+    return date != null && date.year == now.year && date.month == now.month;
+  }).take(5).toList();
+
+  return AsyncValue.data(filtered);
+});
+
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final expensesAsync = ref.watch(expensesStreamProvider);
-    final incomeAsync = ref.watch(inc.incomeStreamProvider);
-    final prefs = ref.watch(preferencesProvider);
-    final currencySymbol = prefs.currencyIndex == 1
-        ? '\$'
-        : prefs.currencyIndex == 2
-            ? '€'
-            : prefs.currencyIndex == 3
-                ? '£'
-                : '₹';
-    
     Future<void> handleRefresh() async {
       ref.invalidate(expensesStreamProvider);
       ref.invalidate(inc.incomeStreamProvider);
@@ -46,28 +83,25 @@ class DashboardScreen extends ConsumerWidget {
           color: AppColors.accentCyan,
           backgroundColor: AppColors.bgElevated,
           onRefresh: handleRefresh,
-          child: CustomScrollView(
-            physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+          child: const CustomScrollView(
+            physics: BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
             slivers: [
-              SliverToBoxAdapter(child: _buildHeader(context, ref)),
-              const SliverToBoxAdapter(child: SizedBox(height: 24)),
-              SliverToBoxAdapter(child: _buildBalanceCard(ref, currencySymbol)),
-              const SliverToBoxAdapter(child: SizedBox(height: 20)),
-              SliverToBoxAdapter(child: _buildIncomeExpenseRow(ref, currencySymbol)),
-              const SliverToBoxAdapter(child: SizedBox(height: 28)),
-              SliverToBoxAdapter(child: _buildQuickActions(context)),
-              const SliverToBoxAdapter(child: SizedBox(height: 28)),
-              SliverToBoxAdapter(child: _buildSmartInsightCard(context, ref)),
-              const SliverToBoxAdapter(child: SizedBox(height: 28)),
-              SliverToBoxAdapter(
-                child: _buildCombinedRecentTransactions(context, ref, expensesAsync, incomeAsync, currencySymbol),
-              ),
-              const SliverToBoxAdapter(child: SizedBox(height: 32)),
+              SliverToBoxAdapter(child: _DashboardHeader()),
+              SliverToBoxAdapter(child: SizedBox(height: 24)),
+              SliverToBoxAdapter(child: _BalanceCard()),
+              SliverToBoxAdapter(child: SizedBox(height: 20)),
+              SliverToBoxAdapter(child: _IncomeExpenseRow()),
+              SliverToBoxAdapter(child: SizedBox(height: 28)),
+              SliverToBoxAdapter(child: _QuickActions()),
+              SliverToBoxAdapter(child: SizedBox(height: 28)),
+              SliverToBoxAdapter(child: _SmartInsightCard()),
+              SliverToBoxAdapter(child: SizedBox(height: 28)),
+              SliverToBoxAdapter(child: _RecentTransactionsList()),
+              SliverToBoxAdapter(child: SizedBox(height: 32)),
             ],
           ),
         ),
       ),
-      bottomNavigationBar: const AppBottomNav(currentIndex: 0),
       floatingActionButton: FloatingActionButton(
         onPressed: () => context.push('/add-expense'),
         backgroundColor: AppColors.accentCyan,
@@ -76,9 +110,14 @@ class DashboardScreen extends ConsumerWidget {
       ),
     );
   }
+}
 
-  // Greeting Header
-  Widget _buildHeader(BuildContext context, WidgetRef ref) {
+// Greeting Header Widget
+class _DashboardHeader extends ConsumerWidget {
+  const _DashboardHeader();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final profileAsync = ref.watch(userProfileProvider);
     String name = 'User';
     String initials = 'U';
@@ -105,7 +144,7 @@ class DashboardScreen extends ConsumerWidget {
     final hasUnread = settlementsAsync.when<bool>(
       data: (list) => list.isNotEmpty,
       loading: () => false,
-      error: (_, __) => false,
+      error: (_, _) => false,
     );
 
     return Padding(
@@ -181,294 +220,306 @@ class DashboardScreen extends ConsumerWidget {
       ),
     );
   }
+}
 
-  void _showNotificationCenter(BuildContext context, WidgetRef ref) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withOpacity(0.55),
-      builder: (context) {
-        return Container(
-          height: MediaQuery.of(context).size.height * 0.78,
-          decoration: const BoxDecoration(
-            color: AppColors.bgSecondary,
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(24),
-              topRight: Radius.circular(24),
-            ),
-            border: Border(
-              top: BorderSide(color: AppColors.border, width: 1.5),
-            ),
+// Notification Bottom Sheet Helper Method
+void _showNotificationCenter(BuildContext context, WidgetRef ref) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black.withValues(alpha: 0.55),
+    builder: (context) {
+      return Container(
+        height: MediaQuery.of(context).size.height * 0.78,
+        decoration: const BoxDecoration(
+          color: AppColors.bgSecondary,
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
           ),
-          child: Column(
-            children: [
-              const SizedBox(height: 12),
-              // Top drag indicator
-              Container(
-                width: 48,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: AppColors.textTertiary.withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(2.5),
-                ),
+          border: Border(
+            top: BorderSide(color: AppColors.border, width: 1.5),
+          ),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 48,
+              height: 5,
+              decoration: BoxDecoration(
+                color: AppColors.textTertiary.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(2.5),
               ),
-              const SizedBox(height: 20),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Notification Centre',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textPrimary,
-                        letterSpacing: -0.5,
-                      ),
+            ),
+            const SizedBox(height: 20),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Notification Centre',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                      letterSpacing: -0.5,
                     ),
-                    IconButton(
-                      icon: const Icon(LucideIcons.x, color: AppColors.textSecondary, size: 20),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
+                  ),
+                  IconButton(
+                    icon: const Icon(LucideIcons.x, color: AppColors.textSecondary, size: 20),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
               ),
-              const SizedBox(height: 8),
-              const Divider(color: AppColors.border, height: 1),
-              Expanded(
-                child: Consumer(
-                  builder: (context, ref, child) {
-                    final settlementsAsync = ref.watch(recentSettlementsProvider);
-                    final prefs = ref.watch(preferencesProvider);
-                    final currencySymbol = prefs.currencyIndex == 1
-                        ? '\$'
-                        : prefs.currencyIndex == 2
-                            ? '€'
-                            : prefs.currencyIndex == 3
-                                ? '£'
-                                : '₹';
+            ),
+            const SizedBox(height: 8),
+            const Divider(color: AppColors.border, height: 1),
+            Expanded(
+              child: Consumer(
+                builder: (context, ref, child) {
+                  final settlementsAsync = ref.watch(recentSettlementsProvider);
+                  final prefs = ref.watch(preferencesProvider);
+                  final currencySymbol = prefs.currencyIndex == 1
+                      ? '\$'
+                      : prefs.currencyIndex == 2
+                          ? '€'
+                          : prefs.currencyIndex == 3
+                              ? '£'
+                              : '₹';
 
-                    return settlementsAsync.when(
-                      data: (settlements) {
-                        if (settlements.isEmpty) {
-                          return Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(20),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: AppColors.accentCyan.withOpacity(0.06),
-                                  ),
-                                  child: const Icon(
-                                    LucideIcons.bellOff,
-                                    color: AppColors.accentCyan,
-                                    size: 32,
-                                  ),
+                  return settlementsAsync.when(
+                    data: (settlements) {
+                      if (settlements.isEmpty) {
+                        return Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(20),
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: AppColors.accentCyan.withValues(alpha: 0.06),
                                 ),
-                                const SizedBox(height: 16),
-                                const Text(
-                                  'All Caught Up!',
-                                  style: TextStyle(
-                                    color: AppColors.textPrimary,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                                child: const Icon(
+                                  LucideIcons.bellOff,
+                                  color: AppColors.accentCyan,
+                                  size: 32,
                                 ),
-                                const SizedBox(height: 4),
-                                const Text(
-                                  'No recent group settlements or updates.',
-                                  style: TextStyle(
-                                    color: AppColors.textTertiary,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }
-
-                        return ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-                          itemCount: settlements.length,
-                          separatorBuilder: (context, index) => const SizedBox(height: 14),
-                          itemBuilder: (context, index) {
-                            final s = settlements[index];
-                            final amount = (s['amount'] as num).toDouble();
-                            final payer = s['payer_name'] ?? 'Someone';
-                            final receiver = s['receiver_name'] ?? 'Someone';
-                            final groupName = s['group_name'] ?? 'Group';
-                            final note = s['note'] as String?;
-                            final rawDate = s['settled_at'] as String?;
-                            
-                            String formattedTime = 'Just now';
-                            if (rawDate != null) {
-                              try {
-                                final dt = DateTime.parse(rawDate).toLocal();
-                                final diff = DateTime.now().difference(dt);
-                                if (diff.inMinutes < 1) {
-                                  formattedTime = 'Just now';
-                                } else if (diff.inMinutes < 60) {
-                                  formattedTime = '${diff.inMinutes}m ago';
-                                } else if (diff.inHours < 24) {
-                                  formattedTime = '${diff.inHours}h ago';
-                                } else {
-                                  formattedTime = '${diff.inDays}d ago';
-                                }
-                              } catch (_) {}
-                            }
-
-                            return Container(
-                              decoration: BoxDecoration(
-                                color: AppColors.bgTertiary.withOpacity(0.5),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: AppColors.border),
                               ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(16),
-                                child: Material(
-                                  color: Colors.transparent,
-                                  child: InkWell(
-                                    onTap: () {
-                                      Navigator.pop(context);
-                                      context.push('/group-detail', extra: s['group_id']);
-                                    },
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(16),
-                                      child: Row(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.all(10),
-                                            decoration: BoxDecoration(
-                                              shape: BoxShape.circle,
-                                              color: AppColors.accentEmerald.withOpacity(0.12),
-                                              border: Border.all(color: AppColors.accentEmerald.withOpacity(0.2), width: 1),
-                                            ),
-                                            child: const Icon(
-                                              LucideIcons.check,
-                                              color: AppColors.accentEmerald,
-                                              size: 16,
-                                            ),
+                              const SizedBox(height: 16),
+                              const Text(
+                                'All Caught Up!',
+                                style: TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'No recent group settlements or updates.',
+                                style: TextStyle(
+                                  color: AppColors.textTertiary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      return ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                        itemCount: settlements.length,
+                        separatorBuilder: (context, index) => const SizedBox(height: 14),
+                        itemBuilder: (context, index) {
+                          final s = settlements[index];
+                          final amount = (s['amount'] as num).toDouble();
+                          final payer = s['payer_name'] ?? 'Someone';
+                          final receiver = s['receiver_name'] ?? 'Someone';
+                          final groupName = s['group_name'] ?? 'Group';
+                          final note = s['note'] as String?;
+                          final rawDate = s['settled_at'] as String?;
+                          
+                          String formattedTime = 'Just now';
+                          if (rawDate != null) {
+                            try {
+                              final dt = DateTime.parse(rawDate).toLocal();
+                              final diff = DateTime.now().difference(dt);
+                              if (diff.inMinutes < 1) {
+                                formattedTime = 'Just now';
+                              } else if (diff.inMinutes < 60) {
+                                formattedTime = '${diff.inMinutes}m ago';
+                              } else if (diff.inHours < 24) {
+                                formattedTime = '${diff.inHours}h ago';
+                              } else {
+                                formattedTime = '${diff.inDays}d ago';
+                              }
+                            } catch (_) {}
+                          }
+
+                          return Container(
+                            decoration: BoxDecoration(
+                              color: AppColors.bgTertiary.withValues(alpha: 0.5),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: () {
+                                    Navigator.pop(context);
+                                    context.push('/group-detail', extra: s['group_id']);
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: AppColors.accentEmerald.withValues(alpha: 0.12),
+                                            border: Border.all(color: AppColors.accentEmerald.withValues(alpha: 0.2), width: 1),
                                           ),
-                                          const SizedBox(width: 14),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                RichText(
-                                                  text: TextSpan(
-                                                    style: const TextStyle(
-                                                      color: AppColors.textPrimary,
-                                                      fontSize: 13,
-                                                      height: 1.4,
-                                                    ),
-                                                    children: [
-                                                      TextSpan(
-                                                        text: payer,
-                                                        style: const TextStyle(fontWeight: FontWeight.w800),
-                                                      ),
-                                                      const TextSpan(text: ' settled '),
-                                                      TextSpan(
-                                                        text: '$currencySymbol${amount.toStringAsFixed(0)}',
-                                                        style: const TextStyle(
-                                                          color: AppColors.accentEmerald,
-                                                          fontWeight: FontWeight.w800,
-                                                        ),
-                                                      ),
-                                                      const TextSpan(text: ' with '),
-                                                      TextSpan(
-                                                        text: receiver,
-                                                        style: const TextStyle(fontWeight: FontWeight.w800),
-                                                      ),
-                                                    ],
+                                          child: const Icon(
+                                            LucideIcons.check,
+                                            color: AppColors.accentEmerald,
+                                            size: 16,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 14),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              RichText(
+                                                text: TextSpan(
+                                                  style: const TextStyle(
+                                                    color: AppColors.textPrimary,
+                                                    fontSize: 13,
+                                                    height: 1.4,
                                                   ),
-                                                ),
-                                                const SizedBox(height: 6),
-                                                Row(
                                                   children: [
-                                                    Icon(LucideIcons.users, color: AppColors.accentPurple.withOpacity(0.8), size: 12),
-                                                    const SizedBox(width: 4),
-                                                    Text(
-                                                      groupName,
+                                                    TextSpan(
+                                                      text: payer,
+                                                      style: const TextStyle(fontWeight: FontWeight.w800),
+                                                    ),
+                                                    const TextSpan(text: ' settled '),
+                                                    TextSpan(
+                                                      text: '$currencySymbol${amount.toStringAsFixed(0)}',
                                                       style: const TextStyle(
-                                                        color: AppColors.textTertiary,
-                                                        fontSize: 11,
-                                                        fontWeight: FontWeight.w600,
+                                                        color: AppColors.accentEmerald,
+                                                        fontWeight: FontWeight.w800,
                                                       ),
                                                     ),
-                                                    const SizedBox(width: 10),
-                                                    const Text('•', style: TextStyle(color: AppColors.textTertiary, fontSize: 10)),
-                                                    const SizedBox(width: 10),
-                                                    Text(
-                                                      formattedTime,
-                                                      style: const TextStyle(
-                                                        color: AppColors.textTertiary,
-                                                        fontSize: 11,
-                                                        fontWeight: FontWeight.w500,
-                                                      ),
+                                                    const TextSpan(text: ' with '),
+                                                    TextSpan(
+                                                      text: receiver,
+                                                      style: const TextStyle(fontWeight: FontWeight.w800),
                                                     ),
                                                   ],
                                                 ),
-                                                if (note != null && note.isNotEmpty) ...[
-                                                  const SizedBox(height: 8),
-                                                  Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                                    decoration: BoxDecoration(
-                                                      color: AppColors.bgPrimary.withOpacity(0.4),
-                                                      borderRadius: BorderRadius.circular(8),
-                                                      border: Border.all(color: AppColors.border.withOpacity(0.5)),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Row(
+                                                children: [
+                                                  Icon(LucideIcons.users, color: AppColors.accentPurple.withValues(alpha: 0.8), size: 12),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    groupName,
+                                                    style: const TextStyle(
+                                                      color: AppColors.textTertiary,
+                                                      fontSize: 11,
+                                                      fontWeight: FontWeight.w600,
                                                     ),
-                                                    child: Text(
-                                                      '"$note"',
-                                                      style: const TextStyle(
-                                                        color: AppColors.textSecondary,
-                                                        fontSize: 11,
-                                                        fontStyle: FontStyle.italic,
-                                                      ),
+                                                  ),
+                                                  const SizedBox(width: 10),
+                                                  const Text('•', style: TextStyle(color: AppColors.textTertiary, fontSize: 10)),
+                                                  const SizedBox(width: 10),
+                                                  Text(
+                                                    formattedTime,
+                                                    style: const TextStyle(
+                                                      color: AppColors.textTertiary,
+                                                      fontSize: 11,
+                                                      fontWeight: FontWeight.w500,
                                                     ),
                                                   ),
                                                 ],
+                                              ),
+                                              if (note != null && note.isNotEmpty) ...[
+                                                const SizedBox(height: 8),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                                  decoration: BoxDecoration(
+                                                    color: AppColors.bgPrimary.withValues(alpha: 0.4),
+                                                    borderRadius: BorderRadius.circular(8),
+                                                    border: Border.all(color: AppColors.border.withValues(alpha: 0.5)),
+                                                  ),
+                                                  child: Text(
+                                                    '"$note"',
+                                                    style: const TextStyle(
+                                                      color: AppColors.textSecondary,
+                                                      fontSize: 11,
+                                                      fontStyle: FontStyle.italic,
+                                                    ),
+                                                  ),
+                                                ),
                                               ],
-                                            ),
+                                            ],
                                           ),
-                                        ],
-                                      ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
                               ),
-                            );
-                          },
-                        );
-                      },
-                      loading: () => const Center(
-                        child: CircularProgressIndicator(color: AppColors.accentCyan),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                    loading: () => const Center(
+                      child: CircularProgressIndicator(color: AppColors.accentCyan),
+                    ),
+                    error: (err, _) => Center(
+                      child: Text(
+                        'Error loading: $err',
+                        style: const TextStyle(color: AppColors.accentRose, fontSize: 12),
                       ),
-                      error: (err, _) => Center(
-                        child: Text(
-                          'Error loading: $err',
-                          style: const TextStyle(color: AppColors.accentRose, fontSize: 12),
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                    ),
+                  );
+                },
               ),
-            ],
-          ),
-        );
-      },
-    );
-  }
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
 
+// Total Balance Card Widget
+class _BalanceCard extends ConsumerWidget {
+  const _BalanceCard();
 
-  // Total Balance Card
-  Widget _buildBalanceCard(WidgetRef ref, String currencySymbol) {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final prefs = ref.watch(preferencesProvider);
+    final currencySymbol = prefs.currencyIndex == 1
+        ? '\$'
+        : prefs.currencyIndex == 2
+            ? '€'
+            : prefs.currencyIndex == 3
+                ? '£'
+                : '₹';
     final totalIncome = ref.watch(inc.monthlyIncomeProvider);
     final expenses = ref.watch(monthlyExpensesProvider);
     final balance = totalIncome - expenses;
@@ -526,9 +577,22 @@ class DashboardScreen extends ConsumerWidget {
     const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
     return months[now.month - 1];
   }
+}
 
-  // Expense Summary
-  Widget _buildIncomeExpenseRow(WidgetRef ref, String currencySymbol) {
+// Income Expense Row Widget
+class _IncomeExpenseRow extends ConsumerWidget {
+  const _IncomeExpenseRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final prefs = ref.watch(preferencesProvider);
+    final currencySymbol = prefs.currencyIndex == 1
+        ? '\$'
+        : prefs.currencyIndex == 2
+            ? '€'
+            : prefs.currencyIndex == 3
+                ? '£'
+                : '₹';
     final totalIncome = ref.watch(inc.monthlyIncomeProvider);
     final expenses = ref.watch(monthlyExpensesProvider);
 
@@ -578,9 +642,14 @@ class DashboardScreen extends ConsumerWidget {
       ),
     );
   }
+}
 
-  // Quick Actions Row
-  Widget _buildQuickActions(BuildContext context) {
+// Quick Actions Widget
+class _QuickActions extends StatelessWidget {
+  const _QuickActions();
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
@@ -615,9 +684,14 @@ class DashboardScreen extends ConsumerWidget {
       ),
     );
   }
+}
 
-  // Single Smart Insight Card (Combines Alerts & Analytics intelligently)
-  Widget _buildSmartInsightCard(BuildContext context, WidgetRef ref) {
+// Smart Insight Card Widget
+class _SmartInsightCard extends ConsumerWidget {
+  const _SmartInsightCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final totalIncome = ref.watch(inc.monthlyIncomeProvider);
     final expenses = ref.watch(monthlyExpensesProvider);
     final balance = totalIncome - expenses;
@@ -662,7 +736,6 @@ class DashboardScreen extends ConsumerWidget {
                 ? '£'
                 : '₹';
 
-    // Insight selection rule engine
     String insightText = 'Your allocations are well-aligned. Tap here for deep financial health insights!';
     IconData insightIcon = LucideIcons.sparkles;
     Color iconColor = AppColors.accentCyan;
@@ -727,99 +800,82 @@ class DashboardScreen extends ConsumerWidget {
       ),
     );
   }
+}
 
-  Widget _buildCombinedRecentTransactions(
-    BuildContext context, 
-    WidgetRef ref, 
-    AsyncValue<List<Map<String, dynamic>>> expensesAsync,
-    AsyncValue<List<Map<String, dynamic>>> incomeAsync,
-    String currencySymbol,
-  ) {
-    return expensesAsync.when(
-      data: (expenses) {
-        return incomeAsync.when(
-          data: (income) {
-            // Combine both lists
-            final combined = [
-              ...expenses.map((e) => {...e, 'is_legacy_expense': true}),
-              ...income.map((e) => {...e, 'is_new_income': true, 'is_income': true}),
-            ];
+// Recent Transactions Section Widget
+class _RecentTransactionsList extends ConsumerWidget {
+  const _RecentTransactionsList();
 
-            // Sort by the specific domain date (expense_date/income_date) descending
-            combined.sort((a, b) {
-              final dateAStr = a['expense_date']?.toString() ?? a['income_date']?.toString() ?? a['created_at']?.toString() ?? '';
-              final dateBStr = b['expense_date']?.toString() ?? b['income_date']?.toString() ?? b['created_at']?.toString() ?? '';
-              final dateA = DateTime.tryParse(dateAStr) ?? DateTime(1970);
-              final dateB = DateTime.tryParse(dateBStr) ?? DateTime(1970);
-              return dateB.compareTo(dateA);
-            });
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final recentAsync = ref.watch(recentCombinedTransactionsProvider);
 
-            // Filter to current month
-            final now = DateTime.now();
-            final filtered = combined.where((e) {
-              final dateStr = e['expense_date']?.toString() ?? e['income_date']?.toString() ?? e['created_at']?.toString() ?? '';
-              final date = DateTime.tryParse(dateStr);
-              return date != null && date.year == now.year && date.month == now.month;
-            }).take(5).toList();
+    return recentAsync.when(
+      data: (filtered) {
+        if (filtered.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 24),
+            child: Center(
+              child: Text('No transactions this month', style: TextStyle(color: AppColors.textSecondary)),
+            ),
+          );
+        }
 
-            if (filtered.isEmpty) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 24),
-                child: Center(
-                  child: Text('No transactions this month', style: TextStyle(color: AppColors.textSecondary)),
-                ),
-              );
-            }
-
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Recent Transactions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-                      TextButton(onPressed: () => context.push('/transactions'), child: const Text('See All', style: TextStyle(color: AppColors.accentCyan))),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  GlassCard(
-                    padding: EdgeInsets.zero,
-                    margin: EdgeInsets.zero,
-                    child: ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: filtered.length,
-                      separatorBuilder: (_, __) => Divider(color: AppColors.borderSubtle, height: 1),
-                      itemBuilder: (context, i) => _buildTransactionItem(context, ref, filtered[i]),
-                    ),
-                  ),
+                  const Text('Recent Transactions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                  TextButton(onPressed: () => context.push('/transactions'), child: const Text('See All', style: TextStyle(color: AppColors.accentCyan))),
                 ],
               ),
-            );
-          },
-          loading: () => const Center(child: CircularProgressIndicator(color: AppColors.accentCyan)),
-          error: (e, _) => Center(child: Text('Error loading income: $e', style: const TextStyle(color: AppColors.accentRose))),
+              const SizedBox(height: 12),
+              GlassCard(
+                padding: EdgeInsets.zero,
+                margin: EdgeInsets.zero,
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, _) => Divider(color: AppColors.borderSubtle, height: 1),
+                  itemBuilder: (context, i) {
+                    // Why RepaintBoundary: Wrapping each transaction item in a RepaintBoundary 
+                    // creates a separate display list/layer. When scrolling or performing 
+                    // tap animations on a card, only this isolated layer repaints, preventing 
+                    // paint invalidation from traversing up and repainting the entire dashboard.
+                    return RepaintBoundary(
+                      child: _TransactionListItem(t: filtered[i]),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         );
       },
       loading: () => const Center(child: CircularProgressIndicator(color: AppColors.accentCyan)),
-      error: (e, _) => Center(child: Text('Error loading expenses: $e', style: const TextStyle(color: AppColors.accentRose))),
+      error: (e, _) => Center(child: Text('Error loading transactions: $e', style: const TextStyle(color: AppColors.accentRose))),
     );
   }
+}
 
-  // Remove the old _buildRecentTransactions method if it's no longer needed
-  // (I'll keep it for now but it's superseded by _buildCombinedRecentTransactions)
+// Individual Transaction List Item Widget
+class _TransactionListItem extends ConsumerWidget {
+  final Map<String, dynamic> t;
+  const _TransactionListItem({required this.t});
 
-  Widget _buildTransactionItem(BuildContext context, WidgetRef ref, Map<String, dynamic> t) {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final isIncome = t['is_income'] == true;
     final baseAmount = t['amount'] is num ? (t['amount'] as num).toDouble() : double.tryParse(t['amount'].toString()) ?? 0.0;
     
     final prefs = ref.watch(preferencesProvider);
     final preferredCurrencyCode = supportedCurrencies[prefs.currencyIndex].code;
 
-    // Raw description may contain an embedded group token:
-    // [GroupExpense: <uuid>|GroupName: <name>] actual title
     final rawDesc = t['description']?.toString() ?? '';
     final groupName = _parseGroupName(rawDesc);
     final cleanTitle = _stripGroupToken(rawDesc);
@@ -890,12 +946,10 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  /// Strips the [GroupExpense: ...|GroupName: ...] token from the description.
   static String _stripGroupToken(String raw) {
     return raw.replaceFirst(RegExp(r'^\[GroupExpense:[^\]]+\]\s*'), '').trim();
   }
 
-  /// Extracts the embedded group name from the token, returns null if not present.
   static String? _parseGroupName(String raw) {
     final match = RegExp(r'^\[GroupExpense:[^|]+\|GroupName:\s*([^\]]+)\]').firstMatch(raw);
     return match?.group(1)?.trim();

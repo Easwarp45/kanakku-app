@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../database/local_cache_service.dart';
 import '../utils/multi_currency_helper.dart';
+import '../utils/security_helper.dart';
 import './auth_provider.dart';
 
 class PreferencesState {
@@ -219,7 +220,17 @@ class PreferencesNotifier extends Notifier<PreferencesState> {
       emailNotifications: LocalCacheService.getCachedData('${prefix}emailNotifications') ?? true,
       pushNotifications: LocalCacheService.getCachedData('${prefix}pushNotifications') ?? true,
       appLock: LocalCacheService.getCachedData('${prefix}appLock') ?? false,
-      passcodePin: LocalCacheService.getCachedData('${prefix}passcodePin') ?? '',
+      passcodePin: () {
+        String passcode = LocalCacheService.getCachedData('${prefix}passcodePin') ?? '';
+        if (passcode.isNotEmpty && passcode.length != 64) {
+          final legacy = passcode;
+          passcode = SecurityHelper.hashPasscode(legacy);
+          Future.microtask(() async {
+            await LocalCacheService.cacheData('${prefix}passcodePin', passcode);
+          });
+        }
+        return passcode;
+      }(),
       biometricEnabled: LocalCacheService.getCachedData('${prefix}biometricEnabled') ?? true,
       showCurrencyRates: LocalCacheService.getCachedData('${prefix}showCurrencyRates') ?? true,
       timezone: LocalCacheService.getCachedData('${prefix}timezone') ?? 'Asia/Kolkata (IST)',
@@ -363,8 +374,9 @@ class PreferencesNotifier extends Notifier<PreferencesState> {
   }
 
   Future<void> updatePasscodePin(String pin) async {
-    state = state.copyWith(passcodePin: pin);
-    await LocalCacheService.cacheData('${_userPrefix}passcodePin', pin);
+    final hashedPin = pin.isEmpty ? '' : SecurityHelper.hashPasscode(pin);
+    state = state.copyWith(passcodePin: hashedPin);
+    await LocalCacheService.cacheData('${_userPrefix}passcodePin', hashedPin);
   }
 
   Future<void> updateBiometric(bool value) async {

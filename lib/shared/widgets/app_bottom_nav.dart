@@ -7,8 +7,13 @@ import '../../core/theme/app_colors.dart';
 
 class AppBottomNav extends StatefulWidget {
   final int currentIndex;
+  final ValueChanged<int>? onTapOverride;
 
-  const AppBottomNav({super.key, required this.currentIndex});
+  const AppBottomNav({
+    super.key,
+    required this.currentIndex,
+    this.onTapOverride,
+  });
 
   static const _routes = ['/dashboard', '/transactions', '/income-list', '/groups', '/insights', '/settings'];
 
@@ -24,7 +29,11 @@ class _AppBottomNavState extends State<AppBottomNav> {
       return;
     }
 
-    context.go(route);
+    if (widget.onTapOverride != null) {
+      widget.onTapOverride!(index);
+    } else {
+      context.go(route);
+    }
   }
 
   @override

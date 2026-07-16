@@ -35,10 +35,11 @@ class AuthService {
 
   AuthService(this._client);
 
-  Future<AuthResponse> signUp(String email, String password) async {
+  Future<AuthResponse> signUp(String email, String password, {String? displayName}) async {
     return await _client.auth.signUp(
       email: email,
       password: password,
+      data: displayName != null ? {'full_name': displayName} : null,
     );
   }
 
@@ -71,5 +72,23 @@ class AuthService {
       ...data,
       'updated_at': DateTime.now().toIso8601String(),
     }, onConflict: 'user_id');
+  }
+
+  /// Sends a password-reset email via Supabase Auth.
+  /// The user receives a link to reset their password; Supabase handles
+  /// token generation and expiry (default 1 hour).
+  ///
+  /// Why redirectTo uses a custom URL scheme: Supabase embeds the recovery
+  /// token in the redirect URL as a fragment (#access_token=...). Without
+  /// a redirectTo, the link points to Supabase's site-URL (often localhost
+  /// in dev projects), giving a "DNS not found" error on mobile.
+  /// Using the app's package-name scheme (com.example.kanakku_flutter://)
+  /// tells Android to route the link back into the app so supabase_flutter
+  /// can parse the token and establish a PASSWORD_RECOVERY auth session.
+  Future<void> resetPassword(String email) async {
+    await _client.auth.resetPasswordForEmail(
+      email,
+      redirectTo: 'com.example.kanakku_flutter://reset-password',
+    );
   }
 }

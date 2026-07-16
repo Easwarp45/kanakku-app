@@ -32,8 +32,18 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // Why isMinifyEnabled + isShrinkResources: R8 is the Android code shrinker.
+            // It removes unused classes, methods, and resources from the APK, reducing
+            // size by 20-40% and improving cold-start time. The proguard-rules.pro file
+            // keeps Flutter's reflection-based classes that R8 would otherwise strip.
+            // Signing with debug keys only so `flutter run --release` works locally;
+            // replace with your production keystore before publishing to Play Store.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             signingConfig = signingConfigs.getByName("debug")
         }
     }

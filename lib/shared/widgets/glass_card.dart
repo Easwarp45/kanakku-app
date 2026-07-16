@@ -23,7 +23,11 @@ class GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget cardContent = Container(
+    // Why Ink: Using a standard Container with background decoration inside an InkWell 
+    // causes the Container's background to be drawn over the Material ink splash. 
+    // Replacing Container with Ink paints the decoration onto the Material, ensuring the 
+    // custom cyan splash/ripple animation is drawn on top of the card background.
+    Widget cardContent = Ink(
       padding: padding,
       decoration: BoxDecoration(
         color: color ?? AppColors.bgTertiary.withValues(alpha: 0.8), // Darker base for mobile glass

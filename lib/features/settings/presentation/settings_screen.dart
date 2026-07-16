@@ -7,7 +7,6 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../shared/widgets/glass_card.dart';
-import '../../../shared/widgets/app_bottom_nav.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/preferences_provider.dart';
@@ -32,46 +31,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       body: SafeArea(
         child: CustomScrollView(
           slivers: [
-            SliverToBoxAdapter(child: _buildHeader(context)),
-            SliverToBoxAdapter(child: const SizedBox(height: 4)),
             SliverToBoxAdapter(child: _buildProfileBanner(context)),
             SliverToBoxAdapter(child: const SizedBox(height: 24)),
             SliverToBoxAdapter(child: _buildSection('Preferences', _buildPreferencesItems())),
             SliverToBoxAdapter(child: _buildSection('Security & Data', _buildDataSecurityItems())),
             SliverToBoxAdapter(child: _buildSection('Support', _buildSupportItems())),
-            SliverToBoxAdapter(child: const SizedBox(height: 12)),
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.only(bottom: 16),
                 child: Center(
                   child: Text('Kanakku Tracker v1.0.0', style: TextStyle(color: AppColors.textTertiary, fontSize: 11)),
                 ),
               ),
             ),
-            SliverToBoxAdapter(child: const SizedBox(height: 24)),
           ],
         ),
-      ),
-      bottomNavigationBar: const AppBottomNav(currentIndex: 5),
-    );
-  }
-
-  Widget _buildHeader(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-      child: Row(
-        children: [
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('PREFERENCES', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.accentCyan, letterSpacing: 2)),
-                SizedBox(height: 2),
-                Text('Settings', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -105,7 +79,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
       child: GestureDetector(
         onTap: () => context.push('/profile'),
         child: Container(

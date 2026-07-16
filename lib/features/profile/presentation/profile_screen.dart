@@ -628,20 +628,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     });
   }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   @override
   void dispose() {
     _nameController.dispose();

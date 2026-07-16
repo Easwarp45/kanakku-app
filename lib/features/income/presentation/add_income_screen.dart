@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:intl/intl.dart';
 import '../../../shared/widgets/glass_card.dart';
 import '../../../shared/widgets/custom_text_field.dart';
 import '../../../shared/widgets/gradient_button.dart';
@@ -26,6 +27,7 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
   final ValueNotifier<bool> _isRecurring = ValueNotifier(false);
   bool _isSaving = false;
   String _selectedCurrency = 'INR';
+  DateTime _selectedDateTime = DateTime.now();
 
   final _quickAmounts = [1000, 5000, 10000, 25000, 50000];
 
@@ -34,6 +36,68 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
     super.initState();
     final prefs = ref.read(preferencesProvider);
     _selectedCurrency = supportedCurrencies[prefs.currencyIndex].code;
+  }
+
+  Future<void> _selectDateTime() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _selectedDateTime,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.accentEmerald,
+              surface: AppColors.bgElevated,
+              onSurface: AppColors.textPrimary,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (date == null) return;
+
+    if (!mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_selectedDateTime),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.accentEmerald,
+              surface: AppColors.bgElevated,
+              onSurface: AppColors.textPrimary,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (time != null) {
+      setState(() {
+        _selectedDateTime = DateTime(
+          date.year,
+          date.month,
+          date.day,
+          time.hour,
+          time.minute,
+        );
+      });
+    } else {
+      setState(() {
+        _selectedDateTime = DateTime(
+          date.year,
+          date.month,
+          date.day,
+          _selectedDateTime.hour,
+          _selectedDateTime.minute,
+        );
+      });
+    }
   }
 
   Future<void> _saveIncome() async {
@@ -65,7 +129,7 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
           'amount': _selectedCurrency == 'INR' ? originalAmount : baseAmount,
           'source': _selectedSource.value,
           'description': finalDesc,
-          'income_date': DateTime.now().toIso8601String().split('T')[0],
+          'income_date': _selectedDateTime.toIso8601String(),
           'is_recurring': _isRecurring.value,
         });
         
@@ -121,8 +185,8 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       CustomTextField(
-                        label: 'Description',
-                        hint: 'e.g. Monthly Salary, Freelance Project',
+                        label: 'Custom Name / Description',
+                        hint: 'Enter name (e.g. Monthly Salary)',
                         controller: _descriptionController,
                         prefixIcon: const Icon(LucideIcons.alignLeft, color: AppColors.textTertiary),
                         validator: (v) => v!.isEmpty ? 'Required' : null,
@@ -132,10 +196,12 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
                       const SizedBox(height: 12),
                       _buildSourceSelector(),
                       const SizedBox(height: 24),
+                      _buildDateSelector(),
+                      const SizedBox(height: 24),
                       // Recurring toggle
                       ValueListenableBuilder<bool>(
                         valueListenable: _isRecurring,
-                        builder: (_, isRecurring, __) => Row(
+                        builder: (_, isRecurring, _) => Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Text('Recurring Income', style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
@@ -285,7 +351,7 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: _quickAmounts.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
         itemBuilder: (_, i) {
           final amt = _quickAmounts[i];
           return GestureDetector(
@@ -315,10 +381,10 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
       height: 48,
       child: ValueListenableBuilder<String>(
         valueListenable: _selectedSource,
-        builder: (_, selected, __) => ListView.separated(
+        builder: (_, selected, _) => ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: sources.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 8),
+          separatorBuilder: (_, _) => const SizedBox(width: 8),
           itemBuilder: (_, i) {
             final source = sources[i];
             final isSelected = selected == source.key;
@@ -345,6 +411,33 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
             );
           },
         ),
+      ),
+    );
+  }
+
+  Widget _buildDateSelector() {
+    return GestureDetector(
+      onTap: _selectDateTime,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Date & Time', style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            decoration: BoxDecoration(color: AppColors.bgSecondary, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.border)),
+            child: Row(
+              children: [
+                const Icon(LucideIcons.calendar, color: AppColors.textTertiary, size: 20),
+                const SizedBox(width: 12),
+                Text(
+                  DateFormat('MMM dd, yyyy  •  hh:mm a').format(_selectedDateTime),
+                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -121,8 +121,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         Align(
                           alignment: Alignment.centerRight,
                           child: TextButton(
-                            onPressed: () {},
-                            child: const Text('Forgot Password?'),
+                            onPressed: () => context.push('/forgot-password'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.accentCyan,
+                              padding: EdgeInsets.zero,
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: const Text(
+                              'Forgot Password?',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(height: 24),
