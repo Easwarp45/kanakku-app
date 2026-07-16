@@ -30,10 +30,10 @@ class SupabaseService {
   Future<Map<String, dynamic>?> getUserProfile(String userId) async {
     try {
       final response = await _client
-          .from('users')
+          .from('profiles')
           .select()
-          .eq('id', userId)
-          .single();
+          .eq('user_id', userId)
+          .maybeSingle();
       return response;
     } catch (e) {
       return null;

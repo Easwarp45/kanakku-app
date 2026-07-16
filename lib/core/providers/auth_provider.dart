@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../database/supabase_service.dart';
 import '../database/local_cache_service.dart';
+import '../database/schema_constants.dart';
 
 final authStateProvider = StreamProvider<AuthState>((ref) {
   try {
@@ -36,18 +38,46 @@ class AuthService {
   AuthService(this._client);
 
   Future<AuthResponse> signUp(String email, String password, {String? displayName}) async {
-    return await _client.auth.signUp(
-      email: email,
+    debugPrint('[AUTH] signUp start email=$email');
+    final response = await _client.auth.signUp(
+      email: email.trim(),
       password: password,
-      data: displayName != null ? {'full_name': displayName} : null,
+      data: displayName != null && displayName.trim().isNotEmpty
+          ? {'full_name': displayName.trim()}
+          : null,
+      emailRedirectTo: 'com.example.kanakku_flutter://login',
     );
+    debugPrint(
+      '[AUTH] signUp done user=${response.user?.id} session=${response.session != null}',
+    );
+
+    // If we already have a session, make sure a profile row exists.
+    // The DB trigger normally creates it; this is a safe recovery path only.
+    final user = response.user;
+    final session = response.session;
+    if (user != null && session != null) {
+      await ensureProfileExists(
+        userId: user.id,
+        displayName: displayName ?? user.userMetadata?['full_name']?.toString(),
+      );
+    }
+
+    return response;
   }
 
   Future<AuthResponse> signIn(String email, String password) async {
-    return await _client.auth.signInWithPassword(
-      email: email,
+    final response = await _client.auth.signInWithPassword(
+      email: email.trim(),
       password: password,
     );
+    final user = response.user;
+    if (user != null) {
+      await ensureProfileExists(
+        userId: user.id,
+        displayName: user.userMetadata?['full_name']?.toString(),
+      );
+    }
+    return response;
   }
 
   Future<void> signOut() async {
@@ -59,32 +89,69 @@ class AuthService {
 
   Future<Map<String, dynamic>?> getProfileData(String userId) async {
     try {
-      // Schema table is 'profiles', link is 'user_id'
       return await _client.from('profiles').select().eq('user_id', userId).maybeSingle();
     } catch (e) {
+      debugPrint('[AUTH] getProfileData error: $e');
       return null;
     }
   }
 
-  Future<void> updateProfile(String userId, Map<String, dynamic> data) async {
-    await _client.from('profiles').upsert({
-      'user_id': userId,
-      ...data,
-      'updated_at': DateTime.now().toIso8601String(),
-    }, onConflict: 'user_id');
+  /// Ensures a profiles row exists for [userId].
+  ///
+  /// Normal path: `handle_new_user()` trigger creates the row.
+  /// Recovery path: if the trigger timed out / was blocked, insert once via RLS
+  /// ("Users can insert own profile"). Never races during signup when the trigger
+  /// already succeeded — ON CONFLICT / existence check keeps it idempotent.
+  Future<void> ensureProfileExists({
+    required String userId,
+    String? displayName,
+  }) async {
+    try {
+      final existing = await getProfileData(userId);
+      if (existing != null) return;
+
+      // Brief wait for the trigger (it may still be committing).
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        final again = await getProfileData(userId);
+        if (again != null) return;
+      }
+
+      debugPrint('[AUTH] Profile missing after trigger wait — inserting recovery row');
+      await _client.from('profiles').insert({
+        'user_id': userId,
+        'display_name': (displayName != null && displayName.trim().isNotEmpty)
+            ? displayName.trim()
+            : 'User',
+        'language': 'en',
+        'currency': 'INR',
+      });
+    } catch (e) {
+      // Unique violation = trigger won the race — fine.
+      debugPrint('[AUTH] ensureProfileExists: $e');
+    }
   }
 
-  /// Sends a password-reset email via Supabase Auth.
-  /// The user receives a link to reset their password; Supabase handles
-  /// token generation and expiry (default 1 hour).
-  ///
-  /// Why redirectTo uses a custom URL scheme: Supabase embeds the recovery
-  /// token in the redirect URL as a fragment (#access_token=...). Without
-  /// a redirectTo, the link points to Supabase's site-URL (often localhost
-  /// in dev projects), giving a "DNS not found" error on mobile.
-  /// Using the app's package-name scheme (com.example.kanakku_flutter://)
-  /// tells Android to route the link back into the app so supabase_flutter
-  /// can parse the token and establish a PASSWORD_RECOVERY auth session.
+  Future<void> updateProfile(String userId, Map<String, dynamic> data) async {
+    await ensureProfileExists(userId: userId);
+
+    final profileExists = await _client
+        .from('profiles')
+        .select('user_id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (profileExists == null) {
+      throw Exception('Unable to prepare your profile. Please try again.');
+    }
+
+    final clean = filterPayload(data, SchemaColumns.profilesWritable);
+    await _client.from('profiles').update({
+      ...clean,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('user_id', userId);
+  }
+
   Future<void> resetPassword(String email) async {
     await _client.auth.resetPasswordForEmail(
       email,

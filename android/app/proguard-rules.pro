@@ -26,3 +26,6 @@
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
+
+# Ignore missing Play Core classes referenced by Flutter's deferred components feature
+-dontwarn com.google.android.play.core.**

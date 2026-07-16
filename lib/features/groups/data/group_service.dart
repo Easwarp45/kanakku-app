@@ -7,6 +7,7 @@ import '../../../core/database/supabase_service.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/database/local_cache_service.dart';
 import '../../../core/database/chat_reconciliation_engine.dart';
+import '../../../core/database/schema_constants.dart';
 
 // ─── Providers ────────────────────────────────────────────────────────────────
 
@@ -169,7 +170,7 @@ class GroupService {
           final groupIds = memberships.map((m) => m['group_id']).toList();
           final groups = await _client
               .from('groups')
-              .select('id, name, description, invite_code, created_by, created_at')
+              .select('id, name, description, image_url, invite_code, created_by, created_at')
               .filter('id', 'in', groupIds)
               .order('created_at', ascending: false);
           return List<Map<String, dynamic>>.from(groups);
@@ -206,7 +207,7 @@ class GroupService {
           if (list.isEmpty) return null;
           final group = Map<String, dynamic>.from(list.first);
           final code = group['invite_code']?.toString().trim();
-          if (code == null || code.length != 6) {
+          if (code == null || code.length != 8) {
             final newCode = _generateInviteCode();
             try {
               await _client
@@ -451,26 +452,26 @@ class GroupService {
   String _generateInviteCode() {
     final rand = Random();
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    return List.generate(6, (i) => chars[rand.nextInt(chars.length)]).join();
+    return List.generate(8, (i) => chars[rand.nextInt(chars.length)]).join();
   }
 
   Future<void> createGroup(String name, String description, {String? imageUrl}) async {
     if (_userId == null) throw Exception('User not authenticated');
 
-    final response = await _client.from('groups').insert({
+    final response = await _client.from('groups').insert(filterPayload({
       'name': name,
       'description': description,
       'image_url': imageUrl,
       'created_by': _userId,
       'invite_code': _generateInviteCode(),
-    }).select().single();
+    }, SchemaColumns.groupsWritable)).select().single();
 
     if (response['id'] != null) {
-      await _client.from('group_members').insert({
+      await _client.from('group_members').insert(filterPayload({
         'group_id': response['id'],
         'user_id': _userId,
         'is_admin': true,
-      });
+      }, SchemaColumns.groupMembersWritable));
       // Immediately invalidate groups cache so new group appears
       await LocalCacheService.invalidate('groups_$_userId');
     }
@@ -496,11 +497,11 @@ class GroupService {
 
     if (existing != null) throw Exception('Already a member of this group');
 
-    await _client.from('group_members').insert({
+    await _client.from('group_members').insert(filterPayload({
       'group_id': group['id'],
       'user_id': _userId,
       'is_admin': false,
-    });
+    }, SchemaColumns.groupMembersWritable));
 
     // Bust groups cache so list refreshes immediately
     await LocalCacheService.invalidate('groups_$_userId');
@@ -587,15 +588,16 @@ class GroupService {
     final actualPaidBy = paidBy ?? _userId;
     final tempId = 'temp_${_uuid.v4()}';
     final actualSplitType = (splitType == 'unequal') ? 'custom' : splitType;
+    final expenseDate = toDateOnly(DateTime.now());
     final tempData = {
       'id': tempId,
       'group_id': groupId,
       'paid_by': actualPaidBy,
       'amount': amount,
       'description': description,
-      'category': category,
+      'category': sanitizeExpenseCategory(category),
       'split_type': actualSplitType,
-      'expense_date': DateTime.now().toIso8601String(),
+      'expense_date': expenseDate,
     };
 
     // Optimistic insert at head
@@ -603,14 +605,15 @@ class GroupService {
     await LocalCacheService.cacheData('group_expenses_$groupId', [tempData, ...cached]);
 
     try {
-      final expense = await _client.from('group_expenses').insert({
+      final expense = await _client.from('group_expenses').insert(filterPayload({
         'group_id': groupId,
         'paid_by': actualPaidBy,
         'amount': amount,
         'description': description,
-        'category': category,
+        'category': sanitizeExpenseCategory(category),
         'split_type': actualSplitType,
-      }).select().single();
+        'expense_date': expenseDate,
+      }, SchemaColumns.groupExpensesWritable)).select().single();
 
       if (actualSplitType == 'equal') {
         final members = await _client
@@ -627,19 +630,21 @@ class GroupService {
         if (uniqueUserIds.isNotEmpty) {
           final splitAmount = amount / uniqueUserIds.length;
           await _client.from('expense_splits').insert(
-            uniqueUserIds.map((userId) => {
+            uniqueUserIds.map((userId) => filterPayload({
               'group_expense_id': expense['id'],
               'user_id': userId,
               'amount': splitAmount,
-            }).toList(),
+              'is_settled': false,
+            }, SchemaColumns.expenseSplitsWritable)).toList(),
           );
         }
       } else if (actualSplitType == 'custom' && customSplits != null) {
-        final splitRows = customSplits.entries.map((entry) => {
+        final splitRows = customSplits.entries.map((entry) => filterPayload({
           'group_expense_id': expense['id'],
           'user_id': entry.key,
           'amount': entry.value,
-        }).toList();
+          'is_settled': false,
+        }, SchemaColumns.expenseSplitsWritable)).toList();
         await _client.from('expense_splits').insert(splitRows);
       }
 
@@ -663,14 +668,14 @@ class GroupService {
           }
         } catch (_) {}
         final personalDesc = '[GroupExpense: ${expense['id']}|GroupName: $groupName] $description';
-        await _client.from('expenses').insert({
+        await _client.from('expenses').insert(filterPayload({
           'user_id': _userId,
           'amount': amount,
           'description': personalDesc,
-          'category': category,
-          'expense_date': DateTime.now().toIso8601String().split('T')[0],
+          'category': sanitizeExpenseCategory(category),
+          'expense_date': expenseDate,
           'payment_method': 'upi',
-        });
+        }, SchemaColumns.expensesWritable));
         await LocalCacheService.invalidate('expenses_$_userId');
       }
     } catch (_) {
@@ -702,15 +707,17 @@ class GroupService {
   }) async {
     if (_userId == null) throw Exception('User not authenticated');
     final actualSplitType = (splitType == 'unequal') ? 'custom' : splitType;
+    final sanitizedCategory = sanitizeExpenseCategory(category);
 
     // 1. Update group_expenses
-    await _client.from('group_expenses').update({
+    await _client.from('group_expenses').update(filterPayload({
       'description': description,
       'amount': amount,
-      'category': category,
+      'category': sanitizedCategory,
       'paid_by': paidBy,
       'split_type': actualSplitType,
-    }).eq('id', expenseId);
+      'updated_at': DateTime.now().toIso8601String(),
+    }, {...SchemaColumns.groupExpensesWritable, 'updated_at'})).eq('id', expenseId);
 
     // 2. Clear old splits
     await _client.from('expense_splits').delete().eq('group_expense_id', expenseId);
@@ -730,22 +737,24 @@ class GroupService {
 
       if (uniqueUserIds.isNotEmpty) {
         final splitAmount = amount / uniqueUserIds.length;
-        final splitRows = uniqueUserIds.map((userId) => {
+        final splitRows = uniqueUserIds.map((userId) => filterPayload({
           'group_expense_id': expenseId,
           'user_id': userId,
           'amount': splitAmount,
-        }).toList();
+          'is_settled': false,
+        }, SchemaColumns.expenseSplitsWritable)).toList();
         await _client.from('expense_splits').upsert(
               splitRows,
               onConflict: 'group_expense_id,user_id',
             );
       }
     } else if (actualSplitType == 'custom' && customSplits != null) {
-      final splitRows = customSplits.entries.map((entry) => {
+      final splitRows = customSplits.entries.map((entry) => filterPayload({
         'group_expense_id': expenseId,
         'user_id': entry.key,
         'amount': entry.value,
-      }).toList();
+        'is_settled': false,
+      }, SchemaColumns.expenseSplitsWritable)).toList();
       await _client.from('expense_splits').upsert(
             splitRows,
             onConflict: 'group_expense_id,user_id',
@@ -778,20 +787,20 @@ class GroupService {
       } catch (_) {}
       final personalDesc = '[GroupExpense: $expenseId|GroupName: $groupName] $description';
       if (existingPersonal != null) {
-        await _client.from('expenses').update({
+        await _client.from('expenses').update(filterPayload({
           'amount': amount,
           'description': personalDesc,
-          'category': category,
-        }).eq('id', existingPersonal['id']);
+          'category': sanitizedCategory,
+        }, SchemaColumns.expensesWritable)).eq('id', existingPersonal['id']);
       } else {
-        await _client.from('expenses').insert({
+        await _client.from('expenses').insert(filterPayload({
           'user_id': _userId,
           'amount': amount,
           'description': personalDesc,
-          'category': category,
-          'expense_date': DateTime.now().toIso8601String().split('T')[0],
+          'category': sanitizedCategory,
+          'expense_date': toDateOnly(DateTime.now()),
           'payment_method': 'upi',
-        });
+        }, SchemaColumns.expensesWritable));
       }
       await LocalCacheService.invalidate('expenses_$_userId');
     } else {
@@ -850,13 +859,13 @@ class GroupService {
     await LocalCacheService.cacheData('settlements_$groupId', [tempData, ...cached]);
 
     try {
-      final settlement = await _client.from('settlements').insert({
+      final settlement = await _client.from('settlements').insert(filterPayload({
         'group_id': groupId,
         'paid_by': _userId,
         'paid_to': paidTo,
         'amount': amount,
         'note': note,
-      }).select().single();
+      }, SchemaColumns.settlementsWritable)).select().single();
 
       final current = LocalCacheService.getCachedList('settlements_$groupId');
       final updated = current.map((e) => e['id'] == tempId ? settlement : e).toList();

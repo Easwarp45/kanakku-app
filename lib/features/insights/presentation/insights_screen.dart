@@ -5,11 +5,10 @@ import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/providers/auth_provider.dart';
-import '../../../core/database/local_cache_service.dart';
 import '../../expenses/data/expense_service.dart';
 import '../../income/data/income_service.dart';
 import '../../budget/data/budget_service.dart';
+import '../../goals/data/financial_goal_service.dart';
 import '../../../core/providers/preferences_provider.dart';
 import '../../../core/utils/multi_currency_helper.dart';
 
@@ -46,62 +45,6 @@ class InsightsQuickStats {
     required this.unlockedBadgesCount,
   });
 }
-
-class LocalGoalsNotifier extends Notifier<List<Map<String, dynamic>>> {
-  @override
-  List<Map<String, dynamic>> build() {
-    final user = ref.read(currentUserProvider);
-    if (user != null) {
-      final list = LocalCacheService.getCachedList('local_goals_${user.id}');
-      return List<Map<String, dynamic>>.from(list);
-    }
-    return [];
-  }
-
-  void loadGoals() {
-    final user = ref.read(currentUserProvider);
-    if (user != null) {
-      final list = LocalCacheService.getCachedList('local_goals_${user.id}');
-      state = List<Map<String, dynamic>>.from(list);
-    }
-  }
-
-  Future<void> addGoal(String name, double target, double current) async {
-    final user = ref.read(currentUserProvider);
-    if (user == null) return;
-    final newGoal = {
-      'id': DateTime.now().millisecondsSinceEpoch.toString(),
-      'name': name,
-      'targetAmount': target,
-      'currentAmount': current,
-    };
-    state = [...state, newGoal];
-    await LocalCacheService.cacheData('local_goals_${user.id}', state);
-  }
-
-  Future<void> updateGoalProgress(String id, double progress) async {
-    final user = ref.read(currentUserProvider);
-    if (user == null) return;
-    state = state.map((g) {
-      if (g['id'] == id) {
-        return {...g, 'currentAmount': progress};
-      }
-      return g;
-    }).toList();
-    await LocalCacheService.cacheData('local_goals_${user.id}', state);
-  }
-
-  Future<void> deleteGoal(String id) async {
-    final user = ref.read(currentUserProvider);
-    if (user == null) return;
-    state = state.where((g) => g['id'] != id).toList();
-    await LocalCacheService.cacheData('local_goals_${user.id}', state);
-  }
-}
-
-final localGoalsProvider = NotifierProvider<LocalGoalsNotifier, List<Map<String, dynamic>>>(() {
-  return LocalGoalsNotifier();
-});
 
 class InsightsScreen extends ConsumerStatefulWidget {
   const InsightsScreen({super.key});

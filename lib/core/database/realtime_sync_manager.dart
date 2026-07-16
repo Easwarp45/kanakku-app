@@ -2,9 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'local_cache_service.dart';
+import 'schema_constants.dart';
 
 /// Priority-ordered offline sync queue manager.
-/// Messages sync first, then settlements, then expenses/income, then groups.
+/// Messages sync first, then settlements, then expenses/income/goals, then groups.
 class RealtimeSyncManager {
   final SupabaseClient _client;
   bool _isSyncing = false;
@@ -16,9 +17,25 @@ class RealtimeSyncManager {
     'settlements': 1,
     'expenses': 2,
     'income': 3,
-    'group_expenses': 4,
-    'groups': 5,
-    'group_members': 6,
+    'financial_goals': 4,
+    'budgets': 5,
+    'group_expenses': 6,
+    'groups': 7,
+    'group_members': 8,
+  };
+
+  static const Map<String, Set<String>> _writableByTable = {
+    'expenses': SchemaColumns.expensesWritable,
+    'income': SchemaColumns.incomeWritable,
+    'budgets': SchemaColumns.budgetsWritable,
+    'financial_goals': SchemaColumns.financialGoalsWritable,
+    'groups': SchemaColumns.groupsWritable,
+    'group_members': SchemaColumns.groupMembersWritable,
+    'group_expenses': SchemaColumns.groupExpensesWritable,
+    'expense_splits': SchemaColumns.expenseSplitsWritable,
+    'settlements': SchemaColumns.settlementsWritable,
+    'group_chats': SchemaColumns.groupChatsWritable,
+    'profiles': SchemaColumns.profilesWritable,
   };
 
   RealtimeSyncManager(this._client) {
@@ -32,7 +49,7 @@ class RealtimeSyncManager {
   Future<void> triggerSync() async {
     if (_isSyncing) return;
     
-    final actions = LocalCacheService.getPendingActions();
+    final actions = LocalCacheService.getPendingActionsWithIndices();
     if (actions.isEmpty) return;
 
     _isSyncing = true;
@@ -53,11 +70,15 @@ class RealtimeSyncManager {
     try {
       for (int i = 0; i < sorted.length; i++) {
         final action = sorted[i];
+        final queueIndex = action['_queueIndex'] as int?;
+        if (queueIndex == null) {
+          continue;
+        }
         
         // Deduplication: skip if same action hash already processed this session
         final hash = _actionHash(action);
         if (processedHashes.contains(hash)) {
-          indicesToDelete.add(i);
+          indicesToDelete.add(queueIndex);
           continue;
         }
         
@@ -69,7 +90,7 @@ class RealtimeSyncManager {
         if (path == 'group_chats') {
           // For chat messages, do a direct insert (no queue replay needed 
           // since sendChatMessage already calls Supabase directly)
-          indicesToDelete.add(i);
+          indicesToDelete.add(queueIndex);
           processedHashes.add(hash);
           continue;
         }
@@ -77,10 +98,8 @@ class RealtimeSyncManager {
         bool success = false;
         try {
           if (type == 'insert') {
-            // Remove temp fields before inserting
-            final cleanPayload = Map<String, dynamic>.from(payload)
-              ..remove('id')
-              ..removeWhere((k, v) => v == null);
+            final cleanPayload = _sanitizePayload(path, payload)
+              ..remove('id');
             await _client.from(path).insert(cleanPayload);
             success = true;
           } else if (type == 'update') {
@@ -89,7 +108,7 @@ class RealtimeSyncManager {
               // Skip — temp ID, real record not created yet
               success = true; 
             } else {
-              final cleanPayload = Map<String, dynamic>.from(payload)..remove('id');
+              final cleanPayload = _sanitizePayload(path, payload)..remove('id');
               await _client.from(path).update(cleanPayload).eq('id', id);
               success = true;
             }
@@ -106,7 +125,7 @@ class RealtimeSyncManager {
         }
 
         if (success) {
-          indicesToDelete.add(i);
+          indicesToDelete.add(queueIndex);
           processedHashes.add(hash);
         }
       }
@@ -121,6 +140,36 @@ class RealtimeSyncManager {
       }
       _isSyncing = false;
     }
+  }
+
+  Map<String, dynamic> _sanitizePayload(String path, Map<String, dynamic> payload) {
+    final allowed = _writableByTable[path];
+    var clean = allowed == null
+        ? Map<String, dynamic>.from(payload)
+        : filterPayload(payload, allowed);
+
+    if (clean.containsKey('expense_date')) {
+      clean['expense_date'] = toDateOnly(clean['expense_date']);
+    }
+    if (clean.containsKey('income_date')) {
+      clean['income_date'] = toDateOnly(clean['income_date']);
+    }
+    if (clean.containsKey('deadline')) {
+      clean['deadline'] = toDateOnly(clean['deadline']);
+    }
+    if (clean.containsKey('category') &&
+        (path == 'expenses' || path == 'group_expenses')) {
+      clean['category'] = sanitizeExpenseCategory(clean['category']);
+    }
+    if (clean.containsKey('source') && path == 'income') {
+      clean['source'] = sanitizeIncomeSource(clean['source']);
+    }
+    if (clean.containsKey('payment_method') && path == 'expenses') {
+      clean['payment_method'] = sanitizePaymentMethod(clean['payment_method']);
+    }
+
+    clean.removeWhere((k, v) => v == null);
+    return clean;
   }
 
   String _actionHash(Map<String, dynamic> action) {

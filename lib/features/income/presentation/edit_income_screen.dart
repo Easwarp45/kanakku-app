@@ -11,6 +11,7 @@ import '../../../core/theme/app_theme.dart';
 import '../data/income_service.dart';
 import '../../../core/utils/multi_currency_helper.dart';
 import '../../../core/providers/preferences_provider.dart';
+import '../../../core/utils/error_mapper.dart';
 
 class EditIncomeScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic> income;
@@ -147,7 +148,7 @@ class _EditIncomeScreenState extends ConsumerState<EditIncomeScreen> {
             'amount': _selectedCurrency == 'INR' ? originalAmount : baseAmount,
             'source': _selectedSource.value,
             'description': finalDesc,
-            'income_date': _selectedDateTime.toIso8601String(),
+            'income_date': _selectedDateTime.toIso8601String().split('T')[0],
             'is_recurring': _isRecurring.value,
           },
         );
@@ -164,7 +165,10 @@ class _EditIncomeScreenState extends ConsumerState<EditIncomeScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.accentRose),
+            SnackBar(
+              content: Text(ErrorMapper.userMessage(e, fallback: 'Unable to save income.')),
+              backgroundColor: AppColors.accentRose,
+            ),
           );
         }
       } finally {

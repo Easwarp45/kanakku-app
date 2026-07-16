@@ -31,10 +31,12 @@ class _GroupExpenseEntryScreenState extends ConsumerState<GroupExpenseEntryScree
     'food',
     'transport',
     'entertainment',
-    'housing',
-    'shopping',
     'health',
-    'other'
+    'shopping',
+    'bills',
+    'travel',
+    'education',
+    'other',
   ];
 
   String? _selectedPayerId;

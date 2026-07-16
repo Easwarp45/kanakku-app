@@ -130,6 +130,32 @@ class LocalCacheService {
     }).where((a) => a.isNotEmpty).toList();
   }
 
+  /// Get pending actions alongside their current Hive box indices.
+  ///
+  /// RealtimeSyncManager sorts actions before replaying them, so it must keep
+  /// the original queue position to clear the correct entry afterward.
+  static List<Map<String, dynamic>> getPendingActionsWithIndices() {
+    if (!_initialized) return [];
+
+    final actions = <Map<String, dynamic>>[];
+    for (var index = 0; index < _queueBox.length; index++) {
+      final item = _queueBox.getAt(index);
+      if (item == null) continue;
+
+      try {
+        final decoded = Map<String, dynamic>.from(jsonDecode(item as String) as Map);
+        actions.add({
+          ...decoded,
+          '_queueIndex': index,
+        });
+      } catch (_) {
+        // Skip corrupt queue entries and let future writes continue normally.
+      }
+    }
+
+    return actions;
+  }
+
   /// Delete a pending action by Hive box index
   static Future<void> clearPendingAction(int index) async {
     if (!_initialized) return;

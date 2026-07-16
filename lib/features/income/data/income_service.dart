@@ -6,6 +6,7 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/database/local_cache_service.dart';
 import '../../../core/providers/preferences_provider.dart';
 import '../../../core/utils/multi_currency_helper.dart';
+import '../../../core/database/schema_constants.dart';
 
 // ─── Providers ───────────────────────────────────────────────────────
 
@@ -86,16 +87,13 @@ class IncomeSourceMeta {
   const IncomeSourceMeta(this.displayName, this.emoji);
 }
 
+// Keys MUST match the live `income_source` Postgres enum exactly.
 const incomeSources = <String, IncomeSourceMeta>{
   'salary':       IncomeSourceMeta('Salary', '💼'),
   'freelance':    IncomeSourceMeta('Freelance', '💻'),
   'business':     IncomeSourceMeta('Business', '🏢'),
   'investment':   IncomeSourceMeta('Investments', '📈'),
   'gift':         IncomeSourceMeta('Gifts', '🎁'),
-  'rental':       IncomeSourceMeta('Rental Income', '🏠'),
-  'bonus':        IncomeSourceMeta('Bonuses', '🎯'),
-  'cashback':     IncomeSourceMeta('Cashback', '💸'),
-  'passive':      IncomeSourceMeta('Passive Income', '🔄'),
   'refund':       IncomeSourceMeta('Refunds', '↩️'),
   'other':        IncomeSourceMeta('Others', '📦'),
 };
@@ -145,42 +143,49 @@ class IncomeService {
     return controller.stream;
   }
 
-  Future<void> addIncome(Map<String, dynamic> income) async {
+  Future<Map<String, dynamic>> addIncome(Map<String, dynamic> income) async {
     if (_userId == null) throw Exception('User not authenticated');
     
-    final tempId = DateTime.now().millisecondsSinceEpoch.toString();
-    final data = {
-      'id': tempId,
+    final payload = filterPayload({
       'user_id': _userId,
       'amount': income['amount'],
-      'source': income['source'] ?? 'salary',
-      'description': income['description'],
-      'income_date': income['income_date'] ?? DateTime.now().toIso8601String().split('T')[0],
+      'source': sanitizeIncomeSource(income['source'] ?? 'salary'),
+      'description': income['description'] ?? '',
+      'income_date': toDateOnly(income['income_date']),
       'is_recurring': income['is_recurring'] ?? false,
-      'created_at': DateTime.now().toIso8601String(),
-    };
+    }, SchemaColumns.incomeWritable);
     
-    // Optimistic cache update
+    final response = await _client
+        .from('income')
+        .insert(payload)
+        .select()
+        .single();
+        
+    final confirmed = Map<String, dynamic>.from(response);
+    
     final cached = LocalCacheService.getCachedData('income_$_userId') ?? [];
-    final updated = [data, ...List<Map<String, dynamic>>.from(cached)];
+    final updated = [confirmed, ...List<Map<String, dynamic>>.from(cached)];
     await LocalCacheService.cacheData('income_$_userId', updated);
     
-    // Queue background upload
-    final syncData = Map<String, dynamic>.from(data)..remove('id')..remove('created_at');
-    await LocalCacheService.queueAction(
-      actionType: 'insert',
-      path: 'income',
-      payload: syncData,
-    );
+    return confirmed;
   }
 
   Future<void> updateIncome(String id, Map<String, dynamic> data) async {
     if (_userId == null) throw Exception('User not authenticated');
     
-    final validKeys = {'amount', 'source', 'description', 'income_date', 'is_recurring'};
-    final cleanData = Map<String, dynamic>.fromEntries(
-      data.entries.where((e) => validKeys.contains(e.key)),
-    );
+    final cleanData = filterPayload({
+      ...data,
+      if (data.containsKey('source'))
+        'source': sanitizeIncomeSource(data['source']),
+      if (data.containsKey('income_date'))
+        'income_date': toDateOnly(data['income_date']),
+    }, {
+      'amount',
+      'source',
+      'description',
+      'income_date',
+      'is_recurring',
+    });
     
     // Optimistic cache update
     final cached = LocalCacheService.getCachedData('income_$_userId') ?? [];

@@ -11,6 +11,8 @@ import '../../../../core/theme/app_theme.dart';
 import '../data/expense_service.dart';
 import '../../../../core/utils/multi_currency_helper.dart';
 import '../../../../core/providers/preferences_provider.dart';
+import '../../../../core/database/schema_constants.dart';
+import '../../../../core/utils/error_mapper.dart';
 
 class EditExpenseScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic> expense;
@@ -40,27 +42,10 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
   ];
 
   // Maps display names → DB expense_category enum values
-  static const _categoryToEnum = <String, String>{
-    'Food & Dining': 'food',
-    'Transportation': 'transport',
-    'Housing': 'housing',
-    'Entertainment': 'entertainment',
-    'Health': 'healthcare',
-    'Shopping': 'shopping',
-    'Utilities': 'utilities',
-  };
+  static const _categoryToEnum = expenseCategoryToEnum;
 
   // Reverse map: DB enum → display name
-  static const _enumToCategory = <String, String>{
-    'food': 'Food & Dining',
-    'transport': 'Transportation',
-    'housing': 'Housing',
-    'entertainment': 'Entertainment',
-    'healthcare': 'Health',
-    'shopping': 'Shopping',
-    'utilities': 'Utilities',
-    'other': 'Food & Dining',
-  };
+  static const _enumToCategory = expenseEnumToCategory;
 
   @override
   void initState() {
@@ -180,7 +165,7 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
             'description': finalDesc,
             'amount': _selectedCurrency == 'INR' ? originalAmount : baseAmount,
             'category': _categoryToEnum[_selectedCategory.value] ?? 'other',
-            'expense_date': _selectedDateTime.toIso8601String(),
+            'expense_date': _selectedDateTime.toIso8601String().split('T')[0],
           }
         );
         
@@ -193,7 +178,10 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error updating expense: $e'), backgroundColor: AppColors.accentRose),
+            SnackBar(
+              content: Text(ErrorMapper.userMessage(e, fallback: 'Unable to save expense.')),
+              backgroundColor: AppColors.accentRose,
+            ),
           );
         }
       } finally {

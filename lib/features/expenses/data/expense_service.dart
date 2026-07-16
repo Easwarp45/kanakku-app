@@ -6,6 +6,7 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/database/local_cache_service.dart';
 import '../../../core/providers/preferences_provider.dart';
 import '../../../core/utils/multi_currency_helper.dart';
+import '../../../core/database/schema_constants.dart';
 
 final expenseServiceProvider = Provider<ExpenseService>((ref) {
   final client = ref.watch(supabaseClientProvider);
@@ -100,62 +101,24 @@ class ExpenseService {
     return controller.stream;
   }
 
-  /// Add a new expense.
-  ///
-  /// WHY we write directly to Supabase here instead of queueing:
-  ///
-  /// The previous implementation called LocalCacheService.queueAction() which
-  /// stored the expense in a local Hive queue. RealtimeSyncManager would pick
-  /// it up after a 3-second delay (and then every 20 seconds). This meant:
-  ///
-  ///   1. The user had no visible confirmation the expense was saved.
-  ///   2. If the session JWT expired between the UI action and the sync timer
-  ///      firing, auth.uid() would return null → RLS block → expense silently lost.
-  ///   3. If the app was killed before the timer fired, the expense was lost.
-  ///
-  /// The correct pattern for a transactional write is:
-  ///   - Write to Supabase immediately (authoritative, auditable)
-  ///   - Update local cache optimistically for instant UI feedback
-  ///   - On network failure, surface the error immediately rather than queuing
-  ///
-  /// The queue (RealtimeSyncManager) is still used for updates and deletes that
-  /// happen offline, because those operations are idempotent and the IDs are known.
+  /// Inserts directly into Supabase so the write is authoritative and visible
+  /// to the React client via Realtime immediately.
   Future<Map<String, dynamic>> addExpense(Map<String, dynamic> expense) async {
     if (_userId == null) throw Exception('User not authenticated');
 
-    // WHY we validate amount here: Supabase will reject a non-numeric amount
-    // with a PostgrestException. Catching it here gives a better user message.
     final amount = expense['amount'];
     if (amount == null) throw Exception('Amount is required');
 
-    // Build the canonical payload — must match the DB column names exactly.
-    // The Web app sends: amount, category, description (or notes), payment_method,
-    // expense_date, currency.
-    // WHY currency: The expenses table has a `currency` column (TEXT, default 'INR').
-    // If the column is NOT NULL without a server-side default, omitting it causes
-    // "null value in column currency violates not-null constraint".
-    final payload = <String, dynamic>{
+    final payload = filterPayload({
       'user_id': _userId,
       'amount': amount,
-      'category': expense['category'] ?? 'other',
-      // WHY both 'description' and 'notes': The Web app may store the text in
-      // 'notes' while Flutter used 'description'. We send both and let the DB
-      // column mapping decide. One will be ignored if the column doesn't exist.
-      'description': expense['description'] ?? expense['notes'] ?? '',
-      'notes': expense['notes'] ?? expense['description'] ?? '',
-      'payment_method': expense['payment_method'] ?? 'upi',
-      'expense_date': expense['expense_date'] ??
-          DateTime.now().toIso8601String().split('T')[0],
-      'currency': expense['currency'] ?? 'INR',
-    };
+      'category': sanitizeExpenseCategory(expense['category'] ?? 'other'),
+      'description': expense['description'] ?? '',
+      'payment_method': sanitizePaymentMethod(expense['payment_method'] ?? 'upi'),
+      'expense_date': toDateOnly(expense['expense_date']),
+      'receipt_url': expense['receipt_url'],
+    }, SchemaColumns.expensesWritable);
 
-    // Remove null values — the DB rejects explicit nulls for NOT NULL columns.
-    // Do NOT remove empty strings, as those are valid values.
-    payload.removeWhere((k, v) => v == null);
-
-    // Direct Supabase insert — synchronous, raises on failure.
-    // RLS policy: WITH CHECK (auth.uid() = user_id)
-    // The SupabaseClient uses the active session JWT automatically.
     final response = await _client
         .from('expenses')
         .insert(payload)
@@ -164,7 +127,6 @@ class ExpenseService {
 
     final confirmed = Map<String, dynamic>.from(response);
 
-    // Update local cache with the confirmed row (has the real DB-generated id).
     final cached = LocalCacheService.getCachedData('expenses_$_userId') ?? [];
     final updated = [confirmed, ...List<Map<String, dynamic>>.from(cached)];
     await LocalCacheService.cacheData('expenses_$_userId', updated);
@@ -175,10 +137,22 @@ class ExpenseService {
   Future<void> updateExpense(String id, Map<String, dynamic> expense) async {
     if (_userId == null) throw Exception('User not authenticated');
     
-    final validKeys = {'amount', 'category', 'description', 'notes', 'payment_method', 'expense_date', 'currency', 'receipt_url'};
-    final cleanData = Map<String, dynamic>.fromEntries(
-      expense.entries.where((e) => validKeys.contains(e.key)),
-    );
+    final cleanData = filterPayload({
+      ...expense,
+      if (expense.containsKey('category'))
+        'category': sanitizeExpenseCategory(expense['category']),
+      if (expense.containsKey('payment_method'))
+        'payment_method': sanitizePaymentMethod(expense['payment_method']),
+      if (expense.containsKey('expense_date'))
+        'expense_date': toDateOnly(expense['expense_date']),
+    }, {
+      'amount',
+      'category',
+      'description',
+      'payment_method',
+      'expense_date',
+      'receipt_url',
+    });
     
     // Optimistic cache update
     final cached = LocalCacheService.getCachedData('expenses_$_userId') ?? [];
@@ -188,10 +162,6 @@ class ExpenseService {
     }).toList();
     await LocalCacheService.cacheData('expenses_$_userId', updated);
     
-    // WHY we queue updates but not inserts:
-    // Updates are idempotent (same data, same result) and the record ID is
-    // already known (it exists in the DB). Inserts are not idempotent — queuing
-    // them risks duplicate rows if the timer fires multiple times.
     await LocalCacheService.queueAction(
       actionType: 'update',
       path: 'expenses',

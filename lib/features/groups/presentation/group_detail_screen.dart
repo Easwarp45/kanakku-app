@@ -124,11 +124,16 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
       case 'entertainment':
         return LucideIcons.tv;
       case 'housing':
+      case 'bills':
         return LucideIcons.home;
       case 'shopping':
         return LucideIcons.shoppingBag;
       case 'health':
         return LucideIcons.heart;
+      case 'travel':
+        return LucideIcons.map;
+      case 'education':
+        return LucideIcons.bookOpen;
       default:
         return LucideIcons.receipt;
     }

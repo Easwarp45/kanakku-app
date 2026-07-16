@@ -6,12 +6,11 @@ import 'package:intl/intl.dart';
 import '../../../shared/widgets/glass_card.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/providers/auth_provider.dart';
-import '../../../core/database/local_cache_service.dart';
 import '../../expenses/data/expense_service.dart';
 import '../../income/data/income_service.dart';
 import '../../../core/providers/preferences_provider.dart';
 import '../../../core/utils/multi_currency_helper.dart';
+import '../../goals/data/financial_goal_service.dart';
 
 class MonthlyWrapScreen extends ConsumerWidget {
   const MonthlyWrapScreen({super.key});
@@ -62,11 +61,7 @@ class MonthlyWrapScreen extends ConsumerWidget {
     final totalExpense = expenses.fold<double>(0, (sum, e) => sum + _parseAmount(e['amount']));
     final reserves = totalIncome - totalExpense;
 
-    final user = ref.watch(currentUserProvider);
-    List<Map<String, dynamic>> goals = [];
-    if (user != null) {
-      goals = LocalCacheService.getCachedList('local_goals_${user.id}');
-    }
+    final goals = ref.watch(localGoalsProvider);
     final completedGoal = goals.firstWhere(
       (g) => _parseAmount(g['currentAmount']) >= _parseAmount(g['targetAmount']),
       orElse: () => <String, dynamic>{},

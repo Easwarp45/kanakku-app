@@ -11,6 +11,8 @@ import '../../../../core/theme/app_theme.dart';
 import '../data/expense_service.dart';
 import '../../../../core/utils/multi_currency_helper.dart';
 import '../../../../core/providers/preferences_provider.dart';
+import '../../../../core/database/schema_constants.dart';
+import '../../../../core/utils/error_mapper.dart';
 
 class AddExpenseScreen extends ConsumerStatefulWidget {
   const AddExpenseScreen({super.key});
@@ -38,15 +40,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
     'Utilities',
   ];
 
-  static const _categoryToEnum = <String, String>{
-    'Food & Dining': 'food',
-    'Transportation': 'transport',
-    'Housing': 'housing',
-    'Entertainment': 'entertainment',
-    'Health': 'healthcare',
-    'Shopping': 'shopping',
-    'Utilities': 'utilities',
-  };
+  static const _categoryToEnum = expenseCategoryToEnum;
 
   @override
   void initState() {
@@ -142,17 +136,12 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
         }
 
         // Send columns that match the DB schema exactly.
-        // WHY currency is included: The expenses table has a `currency` column.
-        // The Web app sends it; omitting it from Flutter caused a NOT NULL
-        // constraint failure on the server (column has no server-side default).
         await ref.read(expenseServiceProvider).addExpense({
           'description': finalDesc,
-          'notes': finalDesc,
           'amount': _selectedCurrency == 'INR' ? originalAmount : baseAmount,
           'category': _categoryToEnum[_selectedCategory.value] ?? 'other',
           'payment_method': 'upi',
           'expense_date': _selectedDateTime.toIso8601String().split('T')[0],
-          'currency': _selectedCurrency == 'INR' ? 'INR' : 'INR', // always store in base INR
         });
         
         // Force refresh the stream to show new data immediately
@@ -164,7 +153,10 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error saving expense: $e'), backgroundColor: AppColors.accentRose),
+            SnackBar(
+              content: Text(ErrorMapper.userMessage(e, fallback: 'Unable to save expense.')),
+              backgroundColor: AppColors.accentRose,
+            ),
           );
         }
       } finally {

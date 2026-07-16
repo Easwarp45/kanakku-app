@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/database/supabase_service.dart';
+import '../../../core/database/schema_constants.dart';
 import '../../../core/providers/auth_provider.dart';
 
 final budgetServiceProvider = Provider<BudgetService>((ref) {
@@ -31,14 +32,18 @@ class BudgetService {
 
   Future<void> upsertBudget(Map<String, dynamic> data) async {
     if (_userId == null) return;
-    await _client.from('budgets').upsert({
+
+    final payload = <String, dynamic>{
       'user_id': _userId,
-      ...data,
+      ...filterPayload(data, {...SchemaColumns.budgetsWritable, 'id'}),
       'updated_at': DateTime.now().toIso8601String(),
-    });
+    };
+
+    await _client.from('budgets').upsert(payload);
   }
 
   Future<void> deleteBudget(String id) async {
-    await _client.from('budgets').delete().eq('id', id);
+    if (_userId == null) return;
+    await _client.from('budgets').delete().eq('id', id).eq('user_id', _userId);
   }
 }

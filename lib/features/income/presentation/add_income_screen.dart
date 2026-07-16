@@ -8,6 +8,7 @@ import '../../../shared/widgets/custom_text_field.dart';
 import '../../../shared/widgets/gradient_button.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../../core/utils/error_mapper.dart';
 import '../data/income_service.dart';
 import '../../../core/utils/multi_currency_helper.dart';
 import '../../../core/providers/preferences_provider.dart';
@@ -129,7 +130,7 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
           'amount': _selectedCurrency == 'INR' ? originalAmount : baseAmount,
           'source': _selectedSource.value,
           'description': finalDesc,
-          'income_date': _selectedDateTime.toIso8601String(),
+          'income_date': _selectedDateTime.toIso8601String().split('T')[0],
           'is_recurring': _isRecurring.value,
         });
         
@@ -145,7 +146,10 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.accentRose),
+            SnackBar(
+              content: Text(ErrorMapper.userMessage(e, fallback: 'Unable to save income.')),
+              backgroundColor: AppColors.accentRose,
+            ),
           );
         }
       } finally {

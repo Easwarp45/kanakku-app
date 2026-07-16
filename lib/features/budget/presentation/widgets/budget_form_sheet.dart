@@ -6,6 +6,7 @@ import '../../../../shared/widgets/custom_text_field.dart';
 import '../../../../shared/widgets/gradient_button.dart';
 import '../../../../core/utils/multi_currency_helper.dart';
 import '../../../../core/providers/preferences_provider.dart';
+import '../../../../core/utils/error_mapper.dart';
 import '../../data/budget_service.dart';
 
 class BudgetFormSheet extends ConsumerStatefulWidget {
@@ -92,7 +93,10 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.accentRose),
+          SnackBar(
+            content: Text(ErrorMapper.userMessage(e, fallback: 'Unable to save budget.')),
+            backgroundColor: AppColors.accentRose,
+          ),
         );
       }
     } finally {
@@ -126,7 +130,10 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.accentRose),
+            SnackBar(
+              content: Text(ErrorMapper.userMessage(e, fallback: 'Unable to delete budget.')),
+              backgroundColor: AppColors.accentRose,
+            ),
           );
         }
       } finally {

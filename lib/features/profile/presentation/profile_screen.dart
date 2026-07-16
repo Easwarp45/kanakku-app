@@ -11,6 +11,7 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/preferences_provider.dart';
 import '../../../core/utils/multi_currency_helper.dart';
 import '../../../core/providers/financial_summary_provider.dart';
+import '../../../core/utils/error_mapper.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -125,7 +126,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error updating profile: $e'), backgroundColor: AppColors.accentRose),
+          SnackBar(
+            content: Text(ErrorMapper.userMessage(e, fallback: 'Unable to update profile.')),
+            backgroundColor: AppColors.accentRose,
+          ),
         );
       }
     }
