@@ -30,6 +30,8 @@ import '../../features/settings/presentation/settings_screen.dart';
 import '../../features/settings/presentation/upi_screen.dart';
 import '../../features/settings/presentation/install_guide_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
+import '../../features/notifications/presentation/notifications_screen.dart';
+import '../../features/notifications/presentation/notification_settings_screen.dart';
 import '../../shared/widgets/scaffold_with_nested_navigation.dart';
 import '../constants/durations.dart';
 
@@ -174,6 +176,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
 
       // Other top-level sub-routes (pushed over the bottom nav shell)
+      GoRoute(path: '/notifications', pageBuilder: (context, state) => _buildPage(state, const NotificationsScreen())),
+      GoRoute(path: '/notification-settings', pageBuilder: (context, state) => _buildPage(state, const NotificationSettingsScreen())),
       GoRoute(path: '/add-expense', pageBuilder: (context, state) => _buildPage(state, const AddExpenseScreen())),
       GoRoute(
         path: '/edit-expense', 

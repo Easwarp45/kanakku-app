@@ -9,6 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers/preferences_provider.dart';
 import '../../../core/utils/multi_currency_helper.dart';
 import '../data/group_service.dart';
+import '../../../core/utils/feedback_helper.dart';
+import '../../../core/utils/error_mapper.dart';
 
 class SettleUpScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic>? settlementData;
@@ -35,12 +37,12 @@ class _SettleUpScreenState extends ConsumerState<SettleUpScreen> {
       );
       ref.invalidate(groupSettlementsStreamProvider(widget.settlementData!['groupId']));
       if (mounted) {
+        FeedbackHelper.showSuccess(context, 'Payment successfully recorded!');
         context.pop();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment successfully recorded!')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.accentRose));
+        FeedbackHelper.showError(context, ErrorMapper.userMessage(e, fallback: 'Unable to record settlement.'));
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);

@@ -8,6 +8,7 @@ import '../../../../core/utils/multi_currency_helper.dart';
 import '../../../../core/providers/preferences_provider.dart';
 import '../../../../core/utils/error_mapper.dart';
 import '../../data/budget_service.dart';
+import '../../../../core/utils/feedback_helper.dart';
 
 class BudgetFormSheet extends ConsumerStatefulWidget {
   final Map<String, dynamic>? budget;
@@ -89,15 +90,13 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
       }
 
       await ref.read(budgetServiceProvider).upsertBudget(data);
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        FeedbackHelper.showSuccess(context, widget.budget == null ? 'Budget created successfully!' : 'Budget updated successfully!');
+        Navigator.pop(context);
+      }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(ErrorMapper.userMessage(e, fallback: 'Unable to save budget.')),
-            backgroundColor: AppColors.accentRose,
-          ),
-        );
+        FeedbackHelper.showError(context, ErrorMapper.userMessage(e, fallback: 'Unable to save budget.'));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -126,15 +125,13 @@ class _BudgetFormSheetState extends ConsumerState<BudgetFormSheet> {
       setState(() => _isLoading = true);
       try {
         await ref.read(budgetServiceProvider).deleteBudget(widget.budget!['id']);
-        if (mounted) Navigator.pop(context);
+        if (mounted) {
+          FeedbackHelper.showSuccess(context, 'Budget purged successfully!');
+          Navigator.pop(context);
+        }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(ErrorMapper.userMessage(e, fallback: 'Unable to delete budget.')),
-              backgroundColor: AppColors.accentRose,
-            ),
-          );
+          FeedbackHelper.showError(context, ErrorMapper.userMessage(e, fallback: 'Unable to delete budget.'));
         }
       } finally {
         if (mounted) setState(() => _isLoading = false);

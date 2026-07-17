@@ -11,6 +11,8 @@ import '../../../core/providers/auth_provider.dart';
 import '../../expenses/data/expense_service.dart';
 import '../../../core/utils/multi_currency_helper.dart';
 import '../../../core/providers/preferences_provider.dart';
+import '../../../core/utils/feedback_helper.dart';
+import '../../../core/utils/error_mapper.dart';
 
 class EditGroupExpenseScreen extends ConsumerStatefulWidget {
   final String? groupId;
@@ -230,16 +232,14 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
 
   Future<void> _updateExpense() async {
     if (widget.expense?['id']?.toString().startsWith('temp_') == true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Expense is syncing with the server. Please wait...')),
-      );
+      FeedbackHelper.showError(context, 'Expense is syncing with the server. Please wait...');
       return;
     }
     final title = _descController.text.trim();
     final originalAmount = double.tryParse(_amountController.text) ?? 0.0;
 
     if (title.isEmpty || originalAmount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter valid details')));
+      FeedbackHelper.showError(context, 'Please enter valid details');
       return;
     }
 
@@ -250,12 +250,7 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
     if (_splitType == 'custom') {
       final sum = _customSplitAmounts.values.fold(0.0, (a, b) => a + b);
       if ((sum - originalAmount).abs() > 0.01) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Total splits (${info.symbol}${sum.toStringAsFixed(2)}) must equal total amount (${info.symbol}${originalAmount.toStringAsFixed(2)})'),
-            backgroundColor: AppColors.accentRose,
-          ),
-        );
+        FeedbackHelper.showError(context, 'Total splits (${info.symbol}${sum.toStringAsFixed(2)}) must equal total amount (${info.symbol}${originalAmount.toStringAsFixed(2)})');
         return;
       }
     }
@@ -299,12 +294,12 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
       ref.invalidate(expensesStreamProvider);
 
       if (mounted) {
+        FeedbackHelper.showSuccess(context, 'Expense updated successfully!');
         context.pop();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Expense updated successfully!')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        FeedbackHelper.showError(context, ErrorMapper.userMessage(e, fallback: 'Unable to save expense.'));
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -313,9 +308,7 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
 
   Future<void> _deleteExpense() async {
     if (widget.expense?['id']?.toString().startsWith('temp_') == true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Expense is syncing with the server. Please wait...')),
-      );
+      FeedbackHelper.showError(context, 'Expense is syncing with the server. Please wait...');
       return;
     }
     final confirm = await showDialog<bool>(
@@ -365,12 +358,12 @@ class _EditGroupExpenseScreenState extends ConsumerState<EditGroupExpenseScreen>
       ref.invalidate(expensesStreamProvider);
 
       if (mounted) {
+        FeedbackHelper.showSuccess(context, 'Expense deleted successfully!');
         context.pop();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Expense deleted successfully')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error deleting expense: $e')));
+        FeedbackHelper.showError(context, ErrorMapper.userMessage(e, fallback: 'Unable to delete expense.'));
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);

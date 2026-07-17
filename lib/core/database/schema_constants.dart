@@ -95,6 +95,20 @@ class SchemaColumns {
     'message',
     'client_id',
   };
+
+  static const notificationsWritable = {
+    'user_id',
+    'title',
+    'body',
+    'type',
+    'priority',
+    'payload',
+    'is_read',
+    'read_at',
+    'scheduled_at',
+    'delivered_at',
+    'source',
+  };
 }
 
 /// Live `expense_category` enum values.

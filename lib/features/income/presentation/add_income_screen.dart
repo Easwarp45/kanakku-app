@@ -12,6 +12,7 @@ import '../../../../core/utils/error_mapper.dart';
 import '../data/income_service.dart';
 import '../../../core/utils/multi_currency_helper.dart';
 import '../../../core/providers/preferences_provider.dart';
+import '../../../../core/utils/feedback_helper.dart';
 
 class AddIncomeScreen extends ConsumerStatefulWidget {
   const AddIncomeScreen({super.key});
@@ -138,19 +139,12 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
         ref.invalidate(incomeStreamProvider);
         
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Income added successfully!'), backgroundColor: AppColors.accentEmerald),
-          );
+          FeedbackHelper.showSuccess(context, 'Income added successfully!');
           context.pop();
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(ErrorMapper.userMessage(e, fallback: 'Unable to save income.')),
-              backgroundColor: AppColors.accentRose,
-            ),
-          );
+          FeedbackHelper.showError(context, ErrorMapper.userMessage(e, fallback: 'Unable to save income.'));
         }
       } finally {
         if (mounted) setState(() => _isSaving = false);

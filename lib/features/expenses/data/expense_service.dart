@@ -131,7 +131,70 @@ class ExpenseService {
     final updated = [confirmed, ...List<Map<String, dynamic>>.from(cached)];
     await LocalCacheService.cacheData('expenses_$_userId', updated);
 
+    // Trigger category budget check async
+    _checkCategoryBudget(confirmed['category'] ?? 'other', _parseAmount(confirmed['amount']));
+
     return confirmed;
+  }
+
+  Future<void> _checkCategoryBudget(String category, double newExpenseAmount) async {
+    if (_userId == null) return;
+    try {
+      final budgets = LocalCacheService.getCachedList('cached_budgets_$_userId');
+      if (budgets.isEmpty) return;
+
+      final normalizedCategory = sanitizeExpenseCategory(category);
+      final budgetMatch = budgets.firstWhere(
+        (b) => sanitizeExpenseCategory(b['category']) == normalizedCategory,
+        orElse: () => <String, dynamic>{},
+      );
+
+      if (budgetMatch.isEmpty) return;
+
+      final budgetAmount = double.tryParse(budgetMatch['amount']?.toString() ?? '0') ?? 0.0;
+      if (budgetAmount <= 0) return;
+
+      final expenses = LocalCacheService.getCachedData('expenses_$_userId') ?? [];
+      final now = DateTime.now();
+      double spentThisMonth = 0.0;
+      for (final e in expenses) {
+        final dateStr = e['expense_date']?.toString() ?? e['created_at']?.toString() ?? '';
+        final d = DateTime.tryParse(dateStr);
+        if (d != null && d.year == now.year && d.month == now.month && sanitizeExpenseCategory(e['category']) == normalizedCategory) {
+          spentThisMonth += double.tryParse(e['amount']?.toString() ?? '0') ?? 0.0;
+        }
+      }
+
+      final ratio = spentThisMonth / budgetAmount;
+      String? alertTitle;
+      String? alertBody;
+      String priority = 'medium';
+
+      if (ratio >= 1.0) {
+        alertTitle = 'Budget Limit Exceeded! 🚨';
+        alertBody = 'You have spent ₹${spentThisMonth.toStringAsFixed(0)} of your ₹${budgetAmount.toStringAsFixed(0)} budget for $category.';
+        priority = 'high';
+      } else if (ratio >= 0.9) {
+        alertTitle = 'Budget Critical Alert ⚠️';
+        alertBody = 'You have spent 90% of your ₹${budgetAmount.toStringAsFixed(0)} budget for $category.';
+      } else if (ratio >= 0.8) {
+        alertTitle = 'Budget Milestone Alert 💡';
+        alertBody = 'You have spent 80% of your ₹${budgetAmount.toStringAsFixed(0)} budget for $category.';
+      }
+
+      if (alertTitle != null && alertBody != null) {
+        await _client.from('notifications').insert({
+          'user_id': _userId,
+          'title': alertTitle,
+          'body': alertBody,
+          'type': 'budget_alert',
+          'priority': priority,
+          'is_read': false,
+          'created_at': DateTime.now().toIso8601String(),
+          'source': 'local',
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> updateExpense(String id, Map<String, dynamic> expense) async {
@@ -161,6 +224,13 @@ class ExpenseService {
       return e;
     }).toList();
     await LocalCacheService.cacheData('expenses_$_userId', updated);
+
+    // Trigger budget checking if category or amount changes
+    if (cleanData.containsKey('category') || cleanData.containsKey('amount')) {
+      final cat = cleanData['category']?.toString() ?? 'other';
+      final amt = _parseAmount(cleanData['amount'] ?? 0.0);
+      _checkCategoryBudget(cat, amt);
+    }
     
     await LocalCacheService.queueAction(
       actionType: 'update',

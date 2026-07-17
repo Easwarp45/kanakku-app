@@ -14,6 +14,9 @@ import 'core/feature_flags/feature_flags.dart';
 import 'core/providers/preferences_provider.dart';
 import 'core/providers/auth_provider.dart';
 import 'features/auth/presentation/passcode_screen.dart';
+import 'features/notifications/services/notification_service.dart';
+import 'features/notifications/services/notification_scheduler.dart';
+import 'features/notifications/providers/notification_provider.dart';
 
 // Why themeModeProvider: The full preferencesProvider holds currency, avatar,
 // app-lock, budget, passcode, and more. Watching it directly in KanakkuApp.build()
@@ -103,6 +106,16 @@ Future<void> _bootstrap() async {
     debugPrint('[STARTUP] FeatureFlags load failed: $e');
   }
 
+  // ── Smart Notifications ──────────────────────────────────────────────────
+  try {
+    await NotificationService().initialize();
+    await NotificationService().requestPermissions();
+    await NotificationScheduler().initialize();
+    debugPrint('[STARTUP] Smart Notifications initialized');
+  } catch (e) {
+    debugPrint('[STARTUP] Smart Notifications init failed: $e');
+  }
+
   debugPrint('[STARTUP] Launching app...');
 
   runApp(
@@ -121,6 +134,9 @@ class KanakkuApp extends ConsumerWidget {
     // on unrelated preference changes (currency, avatar, budget, etc.).
     final router = ref.watch(routerProvider);
     final themeMode = ref.watch(themeModeProvider);
+    
+    // Warm up background notification schedules orchestrator
+    ref.watch(notificationScheduleOrchestratorProvider);
 
     return MaterialApp.router(
       title: 'Kanakku Expense Tracker',

@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:intl/intl.dart';
-import '../../../shared/widgets/glass_card.dart';
+
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/providers/preferences_provider.dart';
@@ -96,18 +97,10 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
-              SliverToBoxAdapter(child: _buildHeader(context)),
-              const SliverToBoxAdapter(child: SizedBox(height: 20)),
-              SliverToBoxAdapter(child: _buildTotalCard(totalIncome, monthlyIncome, preferredCurrencyCode)),
-              const SliverToBoxAdapter(child: SizedBox(height: 24)),
-              SliverToBoxAdapter(child: _buildSectionTitle('Visual Analytics')),
-              SliverToBoxAdapter(child: _buildAnalyticsCards(incomeAsync)),
-              const SliverToBoxAdapter(child: SizedBox(height: 24)),
-              SliverToBoxAdapter(child: _buildSectionTitle('Search & Filters')),
+              SliverToBoxAdapter(child: _buildHeader(context, totalIncome, monthlyIncome, preferredCurrencyCode)),
+              const SliverToBoxAdapter(child: SizedBox(height: 12)),
               SliverToBoxAdapter(child: _buildFilterSection()),
-              const SliverToBoxAdapter(child: SizedBox(height: 20)),
-              SliverToBoxAdapter(child: _buildSmartInsight(incomeAsync)),
-              const SliverToBoxAdapter(child: SizedBox(height: 20)),
+              const SliverToBoxAdapter(child: SizedBox(height: 24)),
               SliverToBoxAdapter(child: _buildSectionTitle('Income History')),
               incomeAsync.when(
                 data: (list) {
@@ -119,29 +112,32 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
                     padding: const EdgeInsets.fromLTRB(24, 0, 24, 100),
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
-                        (_, i) => _buildIncomeCard(filtered[i]),
+                        (_, i) => RepaintBoundary(
+                          child: _buildIncomeCard(filtered[i]),
+                        ),
                         childCount: filtered.length,
                       ),
                     ),
                   );
                 },
                 loading: () => const SliverFillRemaining(
-                  child: Center(child: CircularProgressIndicator(color: AppColors.accentEmerald)),
+                  child: Center(child: CircularProgressIndicator(color: AppColors.accentEmerald, strokeWidth: 2)),
                 ),
                 error: (e, _) => SliverFillRemaining(
-                  child: Center(child: Text('Error: $e', style: const TextStyle(color: AppColors.accentRose))),
+                  child: Center(child: Text('Error: $e', style: const TextStyle(color: AppColors.accentRose, fontSize: 13))),
                 ),
               ),
             ],
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: FloatingActionButton(
         onPressed: () => context.push('/add-income'),
         backgroundColor: AppColors.accentEmerald,
         foregroundColor: Colors.white,
-        icon: const Icon(LucideIcons.plus),
-        label: const Text('Add Income', style: TextStyle(fontWeight: FontWeight.w700)),
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: const Icon(LucideIcons.plus, size: 24),
       ),
     );
   }
@@ -149,165 +145,89 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
   Widget _buildSectionTitle(String title) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
-      child: Text(title.toUpperCase(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.textTertiary, letterSpacing: 1.5)),
+      child: Text(
+        title.toUpperCase(),
+        style: const TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: AppColors.textTertiary,
+          letterSpacing: 1.5,
+        ),
+      ),
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, double total, double monthly, String currencyCode) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('PORTFOLIO MANAGER', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.accentEmerald, letterSpacing: 1.5)),
-              SizedBox(height: 4),
-              Text('Income Hub', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+              const Text(
+                'Income Hub',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textPrimary,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: AppColors.bgSecondary,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.border.withValues(alpha: 0.5)),
+                ),
+                child: const Icon(LucideIcons.landmark, color: AppColors.accentEmerald, size: 18),
+              ),
             ],
           ),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: AppColors.accentEmerald.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(14)),
-            child: const Icon(LucideIcons.landmark, color: AppColors.accentEmerald, size: 22),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'MONTHLY INCOME',
+                      style: TextStyle(color: AppColors.textTertiary, fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.8),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      CurrencyFormatter.format(monthly, currencyCode),
+                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.5),
+                    ),
+                  ],
+                ),
+              ),
+              Container(width: 1, height: 28, color: AppColors.border.withValues(alpha: 0.5)),
+              const SizedBox(width: 24),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'ALL TIME TOTAL',
+                      style: TextStyle(color: AppColors.textTertiary, fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.8),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      CurrencyFormatter.format(total, currencyCode),
+                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.5),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
-    );
-  }
-
-
-  Widget _buildTotalCard(double total, double monthly, String preferredCurrencyCode) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(28),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(28),
-          gradient: const LinearGradient(
-            colors: [Color(0xFF065f46), Color(0xFF10b981)],
-            begin: Alignment.topLeft, end: Alignment.bottomRight,
-          ),
-          boxShadow: [
-            BoxShadow(color: AppColors.accentEmerald.withValues(alpha: 0.3), blurRadius: 24, offset: const Offset(0, 12)),
-            BoxShadow(color: Colors.white.withValues(alpha: 0.05), blurRadius: 0, offset: const Offset(0, 0), spreadRadius: 1),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Total Net Income', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w500)),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(12)),
-                  child: const Text('ALL TIME', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              CurrencyFormatter.format(total, preferredCurrencyCode),
-              style: AppTheme.moneyStyle.copyWith(fontSize: 36, color: Colors.white, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('THIS MONTH', style: TextStyle(color: Colors.white60, fontSize: 9, fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 4),
-                      Text(
-                        CurrencyFormatter.format(monthly, preferredCurrencyCode),
-                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(width: 1, height: 30, color: Colors.white24),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('AVG. DAILY', style: TextStyle(color: Colors.white60, fontSize: 9, fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 4),
-                      Text(
-                        CurrencyFormatter.format(monthly / 30, preferredCurrencyCode),
-                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAnalyticsCards(AsyncValue<List<Map<String, dynamic>>> incomeAsync) {
-    return incomeAsync.maybeWhen(
-      data: (list) {
-        // Group by source (DB column), not category
-        final sourceTotals = <String, double>{};
-        for (var e in list) {
-          final source = e['source']?.toString() ?? 'other';
-          sourceTotals[source] = (sourceTotals[source] ?? 0) + _parseAmt(e['amount']);
-        }
-        final sorted = sourceTotals.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-        final top = sorted.isNotEmpty ? sorted[0] : null;
-        final topMeta = top != null ? incomeSources[top.key] : null;
-
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Row(
-            children: [
-              Expanded(
-                child: GlassCard(
-                  margin: EdgeInsets.zero,
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(LucideIcons.trendingUp, color: AppColors.accentEmerald, size: 20),
-                      const SizedBox(height: 12),
-                      const Text('Top Source', style: TextStyle(color: AppColors.textSecondary, fontSize: 11, fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 4),
-                      Text(topMeta?.displayName ?? top?.key ?? 'None', style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w700)),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: GlassCard(
-                  margin: EdgeInsets.zero,
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(LucideIcons.calendarCheck, color: AppColors.accentCyan, size: 20),
-                      const SizedBox(height: 12),
-                      const Text('Monthly Goal', style: TextStyle(color: AppColors.textSecondary, fontSize: 11, fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 4),
-                      const Text('75% Reached', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w700)),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-      orElse: () => const SizedBox.shrink(),
     );
   }
 
@@ -315,6 +235,7 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           TextField(
             controller: _searchController,
@@ -322,33 +243,39 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
             style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
             decoration: InputDecoration(
               filled: true,
-              fillColor: AppColors.bgSecondary,
-              hintText: 'Search by description or source...',
+              fillColor: AppColors.bgSecondary.withValues(alpha: 0.5),
+              hintText: 'Search description...',
               hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 14),
-              prefixIcon: const Icon(LucideIcons.search, size: 18, color: AppColors.textSecondary),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: AppColors.border.withValues(alpha: 0.5))),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: AppColors.border.withValues(alpha: 0.5))),
-              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.accentEmerald, width: 1.5)),
+              prefixIcon: const Icon(LucideIcons.search, size: 16, color: AppColors.textSecondary),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: AppColors.border.withValues(alpha: 0.3)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: AppColors.border.withValues(alpha: 0.3)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.accentEmerald, width: 1.2),
+              ),
             ),
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            height: 38,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
               children: [
-                // 'All' + all DB enum keys from incomeSources
                 _buildSourceChip('All'),
                 ...incomeSources.keys.map((key) => _buildSourceChip(key)),
               ],
             ),
           ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 38,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
               children: [
                 _buildDateChip('All Time'),
                 _buildDateChip('Today'),
@@ -371,8 +298,8 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
     }
 
     return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: FilterChip(
+      padding: const EdgeInsets.only(right: 6),
+      child: ChoiceChip(
         label: Text(displayLabel),
         selected: isSelected,
         onSelected: (v) {
@@ -384,14 +311,17 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
         },
         labelStyle: TextStyle(
           color: isSelected ? Colors.white : AppColors.textSecondary,
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
         ),
         selectedColor: AppColors.accentEmerald,
-        backgroundColor: AppColors.bgSecondary,
-        checkmarkColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide(color: isSelected ? Colors.transparent : AppColors.border.withValues(alpha: 0.5))),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        backgroundColor: AppColors.bgSecondary.withValues(alpha: 0.5),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(color: isSelected ? Colors.transparent : AppColors.border.withValues(alpha: 0.3)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
     );
   }
@@ -410,7 +340,8 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
               onPrimary: Colors.white,
               surface: AppColors.bgSecondary,
               onSurface: AppColors.textPrimary,
-            ), dialogTheme: DialogThemeData(backgroundColor: AppColors.bgPrimary),
+            ),
+            dialogTheme: const DialogThemeData(backgroundColor: AppColors.bgPrimary),
           ),
           child: child!,
         );
@@ -427,54 +358,30 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
 
   Widget _buildSourceChip(String sourceKey) {
     final isSelected = _selectedSource == sourceKey;
-    final displayName = sourceKey == 'All' ? 'All' : (incomeSources[sourceKey]?.displayName ?? sourceKey);
+    final displayName = sourceKey == 'All' ? 'All Sources' : (incomeSources[sourceKey]?.displayName ?? sourceKey);
     return Padding(
-      padding: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.only(right: 6),
       child: GestureDetector(
         onTap: () => setState(() => _selectedSource = sourceKey),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: isSelected ? AppColors.accentEmerald.withValues(alpha: 0.1) : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: isSelected ? AppColors.accentEmerald : AppColors.border),
+            color: isSelected ? AppColors.accentEmerald.withValues(alpha: 0.12) : AppColors.bgSecondary.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? AppColors.accentEmerald.withValues(alpha: 0.4) : AppColors.border.withValues(alpha: 0.3),
+            ),
           ),
-          child: Text(displayName, style: TextStyle(color: isSelected ? AppColors.accentEmerald : AppColors.textSecondary, fontSize: 12, fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500)),
+          child: Text(
+            displayName,
+            style: TextStyle(
+              color: isSelected ? AppColors.accentEmerald : AppColors.textSecondary,
+              fontSize: 11,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+            ),
+          ),
         ),
       ),
-    );
-  }
-
-  Widget _buildSmartInsight(AsyncValue<List<Map<String, dynamic>>> incomeAsync) {
-    return incomeAsync.maybeWhen(
-      data: (list) {
-        if (list.isEmpty) return const SizedBox.shrink();
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.accentEmerald.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppColors.accentEmerald.withValues(alpha: 0.15)),
-            ),
-            child: Row(
-              children: [
-                const Icon(LucideIcons.sparkles, color: AppColors.accentEmerald, size: 20),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text(
-                    'Track all income sources for personalized financial insights!',
-                    style: TextStyle(color: AppColors.textPrimary, fontSize: 12, fontWeight: FontWeight.w500, height: 1.4),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-      orElse: () => const SizedBox.shrink(),
     );
   }
 
@@ -485,11 +392,9 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
     final source = t['source']?.toString() ?? 'other';
     final meta = incomeSources[source] ?? const IncomeSourceMeta('Other', '📦');
     
-    // Use income_date for display (the actual DB column)
     DateTime? d = DateTime.tryParse(t['income_date']?.toString() ?? t['created_at']?.toString() ?? '');
     String dateStr = d != null ? DateFormat('MMM dd, yyyy').format(d) : 'Unknown';
 
-    // Show description if available, otherwise show the source display name
     final displayTitle = cleanDesc.isNotEmpty ? cleanDesc : meta.displayName;
 
     final prefs = ref.watch(preferencesProvider);
@@ -511,21 +416,31 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
     }
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: AppColors.bgSecondary.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.border.withValues(alpha: 0.3)),
+        color: AppColors.bgSecondary.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border.withValues(alpha: 0.2)),
       ),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         leading: Container(
-          height: 48, width: 48,
-          decoration: BoxDecoration(color: AppColors.bgElevated, borderRadius: BorderRadius.circular(14)),
-          child: Center(child: Text(meta.emoji, style: const TextStyle(fontSize: 20))),
+          height: 40,
+          width: 40,
+          decoration: BoxDecoration(
+            color: AppColors.bgSecondary,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Center(child: Text(meta.emoji, style: const TextStyle(fontSize: 16))),
         ),
-        title: Text(displayTitle, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 15)),
-        subtitle: Text('$dateStr • ${meta.displayName}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+        title: Text(
+          displayTitle,
+          style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 14),
+        ),
+        subtitle: Text(
+          '$dateStr  •  ${meta.displayName}',
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+        ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -535,13 +450,17 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
               children: [
                 Text(
                   formattedAmount,
-                  style: AppTheme.moneyStyle.copyWith(color: AppColors.accentEmerald, fontSize: 16, fontWeight: FontWeight.w800),
+                  style: AppTheme.moneyStyle.copyWith(
+                    color: AppColors.accentEmerald,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 if (sublabel.isNotEmpty) ...[
                   const SizedBox(height: 2),
                   Text(
                     sublabel,
-                    style: const TextStyle(color: AppColors.textTertiary, fontSize: 11, fontWeight: FontWeight.w500),
+                    style: const TextStyle(color: AppColors.textTertiary, fontSize: 10),
                   ),
                 ],
               ],
@@ -550,7 +469,10 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
             const Icon(LucideIcons.chevronRight, color: AppColors.textTertiary, size: 14),
           ],
         ),
-        onTap: () => _showIncomeDetails(context, t),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          _showIncomeDetails(context, t);
+        },
       ),
     );
   }
@@ -593,42 +515,59 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
       isScrollControlled: true,
       builder: (_) => Container(
         padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
-        decoration: const BoxDecoration(color: AppColors.bgSecondary, borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+        decoration: const BoxDecoration(
+          color: AppColors.bgSecondary,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(height: 4, width: 40, decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2))),
-            const SizedBox(height: 32),
-            const Text('TRANSACTION DETAILS', style: TextStyle(color: AppColors.textTertiary, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 2)),
+            const SizedBox(height: 24),
+            const Text(
+              'TRANSACTION DETAILS',
+              style: TextStyle(color: AppColors.textTertiary, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1.5),
+            ),
             const SizedBox(height: 16),
-            Text(meta.emoji, style: const TextStyle(fontSize: 48)),
+            Text(meta.emoji, style: const TextStyle(fontSize: 40)),
             const SizedBox(height: 8),
-            Text(displayDescription, style: const TextStyle(color: AppColors.textPrimary, fontSize: 24, fontWeight: FontWeight.w800), textAlign: TextAlign.center),
+            Text(
+              displayDescription,
+              style: const TextStyle(color: AppColors.textPrimary, fontSize: 20, fontWeight: FontWeight.w700),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 8),
-            Text(formattedAmount, style: AppTheme.moneyStyle.copyWith(color: AppColors.accentEmerald, fontSize: 32, fontWeight: FontWeight.w800)),
+            Text(
+              formattedAmount,
+              style: AppTheme.moneyStyle.copyWith(color: AppColors.accentEmerald, fontSize: 28, fontWeight: FontWeight.w700),
+            ),
             if (sublabel.isNotEmpty) ...[
               const SizedBox(height: 4),
-              Text(sublabel, style: const TextStyle(color: AppColors.textSecondary, fontSize: 16, fontWeight: FontWeight.w600)),
+              Text(sublabel, style: const TextStyle(color: AppColors.textSecondary, fontSize: 14, fontWeight: FontWeight.w500)),
             ],
-            const SizedBox(height: 32),
-            GlassCard(
-              padding: const EdgeInsets.all(20),
-              margin: EdgeInsets.zero,
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.bgPrimary.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.border.withValues(alpha: 0.3)),
+              ),
               child: Column(
                 children: [
                   _detailItem(LucideIcons.tag, 'Source', meta.displayName),
-                  const Divider(color: AppColors.border, height: 24),
+                  const Divider(color: AppColors.border, height: 20),
                   _detailItem(LucideIcons.repeat, 'Recurring', isRecurring ? 'Yes' : 'No'),
-                  const Divider(color: AppColors.border, height: 24),
+                  const Divider(color: AppColors.border, height: 20),
                   _detailItem(LucideIcons.alignLeft, 'Description', displayDescription),
                   if (mcData != null) ...[
-                    const Divider(color: AppColors.border, height: 24),
+                    const Divider(color: AppColors.border, height: 20),
                     _detailItem(LucideIcons.trendingUp, 'Exchange Rate', '1 INR = ${mcData.rate.toStringAsFixed(4)} ${mcData.currency}'),
                   ],
                 ],
               ),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
             Row(
               children: [
                 Expanded(
@@ -637,12 +576,12 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
                       Navigator.pop(context);
                       context.push('/edit-income', extra: t);
                     },
-                    icon: const Icon(LucideIcons.edit3, color: AppColors.accentCyan, size: 20),
-                    label: const Text('Edit Entry', style: TextStyle(color: AppColors.accentCyan, fontWeight: FontWeight.w700)),
+                    icon: const Icon(LucideIcons.edit3, color: AppColors.accentCyan, size: 18),
+                    label: const Text('Edit', style: TextStyle(color: AppColors.accentCyan, fontWeight: FontWeight.w600)),
                     style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: AppColors.accentCyan.withValues(alpha: 0.1),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      backgroundColor: AppColors.accentCyan.withValues(alpha: 0.08),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                   ),
                 ),
@@ -652,15 +591,14 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
                     onPressed: () async {
                       Navigator.pop(context);
                       await ref.read(incomeServiceProvider).deleteIncome(t['id'].toString());
-                      // Refresh the stream
                       ref.invalidate(incomeStreamProvider);
                     },
-                    icon: const Icon(LucideIcons.trash2, color: AppColors.accentRose, size: 20),
-                    label: const Text('Delete Entry', style: TextStyle(color: AppColors.accentRose, fontWeight: FontWeight.w700)),
+                    icon: const Icon(LucideIcons.trash2, color: AppColors.accentRose, size: 18),
+                    label: const Text('Delete', style: TextStyle(color: AppColors.accentRose, fontWeight: FontWeight.w600)),
                     style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: AppColors.accentRose.withValues(alpha: 0.1),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      backgroundColor: AppColors.accentRose.withValues(alpha: 0.08),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                   ),
                 ),
@@ -675,14 +613,17 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
   Widget _detailItem(IconData icon, String label, String value) {
     return Row(
       children: [
-        Icon(icon, color: AppColors.textTertiary, size: 18),
+        Icon(icon, color: AppColors.textTertiary, size: 16),
         const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: const TextStyle(color: AppColors.textTertiary, fontSize: 10, fontWeight: FontWeight.w700)),
-            Text(value, style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600)),
-          ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(color: AppColors.textTertiary, fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
+              const SizedBox(height: 2),
+              Text(value, style: const TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w500)),
+            ],
+          ),
         ),
       ],
     );
@@ -692,13 +633,19 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
 
   Widget _buildEmptyState() {
     return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(LucideIcons.info, size: 48, color: AppColors.textTertiary),
-          SizedBox(height: 16),
-          Text('No matching income entries found', style: TextStyle(color: AppColors.textSecondary)),
-        ],
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 60),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(LucideIcons.info, size: 40, color: AppColors.textTertiary),
+            SizedBox(height: 12),
+            Text(
+              'No matching income entries found',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 14, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
       ),
     );
   }

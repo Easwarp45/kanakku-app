@@ -13,6 +13,7 @@ import '../../../../core/utils/multi_currency_helper.dart';
 import '../../../../core/providers/preferences_provider.dart';
 import '../../../../core/database/schema_constants.dart';
 import '../../../../core/utils/error_mapper.dart';
+import '../../../../core/utils/feedback_helper.dart';
 
 class EditExpenseScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic> expense;
@@ -173,16 +174,12 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
         ref.invalidate(expensesStreamProvider);
         
         if (mounted) {
+          FeedbackHelper.showSuccess(context, 'Expense updated successfully!');
           context.pop();
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(ErrorMapper.userMessage(e, fallback: 'Unable to save expense.')),
-              backgroundColor: AppColors.accentRose,
-            ),
-          );
+          FeedbackHelper.showError(context, ErrorMapper.userMessage(e, fallback: 'Unable to save expense.'));
         }
       } finally {
         if (mounted) {

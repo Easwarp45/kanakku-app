@@ -11,6 +11,8 @@ import '../../../core/providers/auth_provider.dart';
 import '../../expenses/data/expense_service.dart';
 import '../../../core/utils/multi_currency_helper.dart';
 import '../../../core/providers/preferences_provider.dart';
+import '../../../core/utils/feedback_helper.dart';
+import '../../../core/utils/error_mapper.dart';
 
 class GroupExpenseEntryScreen extends ConsumerStatefulWidget {
   final String? groupId;
@@ -215,7 +217,7 @@ class _GroupExpenseEntryScreenState extends ConsumerState<GroupExpenseEntryScree
     final originalAmount = double.tryParse(_amountController.text) ?? 0.0;
 
     if (title.isEmpty || originalAmount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter valid details')));
+      FeedbackHelper.showError(context, 'Please enter valid details');
       return;
     }
 
@@ -228,12 +230,7 @@ class _GroupExpenseEntryScreenState extends ConsumerState<GroupExpenseEntryScree
     if (_splitType == 'custom') {
       final sum = _customSplitAmounts.values.fold(0.0, (a, b) => a + b);
       if ((sum - originalAmount).abs() > 0.01) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Total splits ($symbol${sum.toStringAsFixed(2)}) must equal total amount ($symbol${originalAmount.toStringAsFixed(2)})'),
-            backgroundColor: AppColors.accentRose,
-          ),
-        );
+        FeedbackHelper.showError(context, 'Total splits ($symbol${sum.toStringAsFixed(2)}) must equal total amount ($symbol${originalAmount.toStringAsFixed(2)})');
         return;
       }
     }
@@ -273,12 +270,12 @@ class _GroupExpenseEntryScreenState extends ConsumerState<GroupExpenseEntryScree
       ref.invalidate(expensesStreamProvider);
 
       if (mounted) {
+        FeedbackHelper.showSuccess(context, 'Expense added successfully!');
         context.pop();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Expense added successfully!')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        FeedbackHelper.showError(context, ErrorMapper.userMessage(e, fallback: 'Unable to save expense.'));
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);

@@ -6,6 +6,8 @@ import '../../../shared/widgets/custom_text_field.dart';
 import '../../../shared/widgets/gradient_button.dart';
 import '../../../core/theme/app_colors.dart';
 import '../data/group_service.dart';
+import '../../../core/utils/feedback_helper.dart';
+import '../../../core/utils/error_mapper.dart';
 
 class CreateGroupScreen extends ConsumerStatefulWidget {
   const CreateGroupScreen({super.key});
@@ -22,7 +24,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   Future<void> _createGroup() async {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Group name is required')));
+      FeedbackHelper.showError(context, 'Group name is required');
       return;
     }
 
@@ -30,10 +32,13 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     try {
       await ref.read(groupServiceProvider).createGroup(name, _descController.text.trim());
       ref.invalidate(groupsStreamProvider);
-      if (mounted) context.pop();
+      if (mounted) {
+        FeedbackHelper.showSuccess(context, 'Group created successfully!');
+        context.pop();
+      }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        FeedbackHelper.showError(context, ErrorMapper.userMessage(e, fallback: 'Unable to create group.'));
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);

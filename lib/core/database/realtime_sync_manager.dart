@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'local_cache_service.dart';
 import 'schema_constants.dart';
+import '../../features/notifications/services/notification_service.dart';
 
 /// Priority-ordered offline sync queue manager.
 /// Messages sync first, then settlements, then expenses/income/goals, then groups.
@@ -36,6 +37,7 @@ class RealtimeSyncManager {
     'settlements': SchemaColumns.settlementsWritable,
     'group_chats': SchemaColumns.groupChatsWritable,
     'profiles': SchemaColumns.profilesWritable,
+    'notifications': SchemaColumns.notificationsWritable,
   };
 
   RealtimeSyncManager(this._client) {
@@ -43,6 +45,25 @@ class RealtimeSyncManager {
     Future.delayed(const Duration(seconds: 3), triggerSync);
     // Periodic sync every 20 seconds
     _syncTimer = Timer.periodic(const Duration(seconds: 20), (_) => triggerSync());
+  }
+
+  Future<void> _insertSyncNotification(String title, String body) async {
+    try {
+      final user = _client.auth.currentUser;
+      if (user == null) return;
+
+      final payload = {
+        'user_id': user.id,
+        'title': title,
+        'body': body,
+        'type': 'offline_sync',
+        'priority': 'low',
+        'is_read': false,
+        'created_at': DateTime.now().toIso8601String(),
+        'source': 'local',
+      };
+      await _client.from('notifications').insert(payload);
+    } catch (_) {}
   }
 
   /// Drain the pending queue with priority ordering and exponential backoff
@@ -53,6 +74,18 @@ class RealtimeSyncManager {
     if (actions.isEmpty) return;
 
     _isSyncing = true;
+
+    // Trigger Sync Started notification
+    NotificationService().showNotification(
+      id: 9001,
+      title: 'Sync Started 🔄',
+      body: 'Synchronizing ${actions.length} pending actions with the server...',
+      type: 'offline_sync',
+    );
+    _insertSyncNotification(
+      'Sync Started 🔄',
+      'Synchronizing ${actions.length} pending actions with the server...',
+    );
     
     // Sort by priority then timestamp (stable sort)
     final sorted = List<Map<String, dynamic>>.from(actions);
@@ -139,6 +172,43 @@ class RealtimeSyncManager {
         } catch (_) {}
       }
       _isSyncing = false;
+
+      // Determine sync outcome and notify
+      final currentQueue = LocalCacheService.getPendingActions();
+      if (currentQueue.isEmpty) {
+        NotificationService().showNotification(
+          id: 9002,
+          title: 'Sync Successful ✅',
+          body: 'All offline actions successfully synchronized!',
+          type: 'offline_sync',
+        );
+        _insertSyncNotification(
+          'Sync Successful ✅',
+          'All offline actions successfully synchronized!',
+        );
+      } else if (indicesToDelete.isEmpty) {
+        NotificationService().showNotification(
+          id: 9003,
+          title: 'Sync Failed ❌',
+          body: 'Network synchronization failed. Will retry automatically.',
+          type: 'offline_sync',
+        );
+        _insertSyncNotification(
+          'Sync Failed ❌',
+          'Network synchronization failed. Will retry automatically.',
+        );
+      } else {
+        NotificationService().showNotification(
+          id: 9004,
+          title: 'Sync Warning ⚠️',
+          body: 'Synchronized ${indicesToDelete.length} actions, ${currentQueue.length} remaining.',
+          type: 'offline_sync',
+        );
+        _insertSyncNotification(
+          'Sync Warning ⚠️',
+          'Synchronized ${indicesToDelete.length} actions, ${currentQueue.length} remaining.',
+        );
+      }
     }
   }
 
