@@ -118,7 +118,10 @@ class _PasscodeScreenState extends ConsumerState<PasscodeScreen> with SingleTick
       if (!_changeModeVerified) {
         // Stage 1: Verify current PIN
         final actualPin = prefs.passcodePin;
-        if (SecurityHelper.verifyPasscode(enteredPin, actualPin)) {
+        final salt = ref.read(preferencesProvider.notifier).userPrefix;
+        if (SecurityHelper.verifyPasscode(enteredPin, actualPin, salt: salt)) {
+          // Trigger automatic migration to salted PIN
+          await ref.read(preferencesProvider.notifier).updatePasscodePin(enteredPin);
           setState(() {
             _changeModeVerified = true;
             _digits.clear();
@@ -193,7 +196,8 @@ class _PasscodeScreenState extends ConsumerState<PasscodeScreen> with SingleTick
       }
     } else {
       final actualPin = prefs.passcodePin;
-      if (SecurityHelper.verifyPasscode(enteredPin, actualPin)) {
+      final salt = ref.read(preferencesProvider.notifier).userPrefix;
+      if (SecurityHelper.verifyPasscode(enteredPin, actualPin, salt: salt)) {
         if (widget.mode == PasscodeMode.verifyDisable) {
           // Success: Disable lock
           await ref.read(preferencesProvider.notifier).updatePasscodePin('');
@@ -203,6 +207,8 @@ class _PasscodeScreenState extends ConsumerState<PasscodeScreen> with SingleTick
             if (mounted) context.pop();
           }
         } else {
+          // Trigger automatic migration to salted PIN
+          await ref.read(preferencesProvider.notifier).updatePasscodePin(enteredPin);
           // Success: Unlock App
           ref.read(sessionLockProvider.notifier).setLock(false);
           if (mounted) {

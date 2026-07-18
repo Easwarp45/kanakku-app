@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/database/supabase_service.dart';
+import '../../../core/database/realtime_sync_manager.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/database/local_cache_service.dart';
 import '../../../core/providers/preferences_provider.dart';
@@ -13,9 +15,8 @@ import '../../../core/database/schema_constants.dart';
 final incomeServiceProvider = Provider<IncomeService>((ref) {
   final client = ref.watch(supabaseClientProvider);
   final user = ref.watch(currentUserProvider);
-  // Warm up RealtimeSyncManager
-  ref.read(realtimeSyncManagerProvider);
-  return IncomeService(client, user?.id);
+  final syncManager = ref.read(realtimeSyncManagerProvider);
+  return IncomeService(client, user?.id, syncManager);
 });
 
 final incomeStreamProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
@@ -108,8 +109,9 @@ final incomeCategories = incomeSources;
 class IncomeService {
   final SupabaseClient _client;
   final String? _userId;
+  final RealtimeSyncManager _syncManager;
 
-  IncomeService(this._client, this._userId);
+  IncomeService(this._client, this._userId, this._syncManager);
 
   Stream<List<Map<String, dynamic>>> getIncomeStream() {
     if (_userId == null) return Stream.value([]);
@@ -129,9 +131,19 @@ class IncomeService {
         .eq('user_id', _userId)
         .order('income_date', ascending: false)
         .listen((data) {
-          LocalCacheService.cacheData('income_$_userId', data);
+          // Merge local unsynced temporary records to prevent them from being wiped out
+          final cached = LocalCacheService.getCachedData('income_$_userId') ?? [];
+          final tempRecords = List<Map<String, dynamic>>.from(cached)
+              .where((e) => e['id']?.toString().startsWith('temp_') ?? false);
+          
+          final merged = [
+            ...tempRecords,
+            ...data.where((e) => !(e['id']?.toString().startsWith('temp_') ?? false)),
+          ];
+
+          LocalCacheService.cacheData('income_$_userId', merged);
           if (!controller.isClosed) {
-            controller.add(data);
+            controller.add(merged);
           }
         }, onError: (_) {});
 
@@ -143,31 +155,44 @@ class IncomeService {
     return controller.stream;
   }
 
+  /// Inserts optimistically into local cache and queues background sync
   Future<Map<String, dynamic>> addIncome(Map<String, dynamic> income) async {
     if (_userId == null) throw Exception('User not authenticated');
     
-    final payload = filterPayload({
-      'user_id': _userId,
-      'amount': income['amount'],
-      'source': sanitizeIncomeSource(income['source'] ?? 'salary'),
-      'description': income['description'] ?? '',
-      'income_date': toDateOnly(income['income_date']),
-      'is_recurring': income['is_recurring'] ?? false,
-    }, SchemaColumns.incomeWritable);
+    final amount = income['amount'];
+    if (amount == null) throw Exception('Amount is required');
+
+    final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}_${math.Random().nextInt(1000)}';
+
+    final payload = {
+      'id': tempId,
+      'created_at': DateTime.now().toIso8601String(),
+      ...filterPayload({
+        'user_id': _userId,
+        'amount': amount,
+        'source': sanitizeIncomeSource(income['source'] ?? 'salary'),
+        'description': income['description'] ?? '',
+        'income_date': toDateOnly(income['income_date']),
+        'is_recurring': income['is_recurring'] ?? false,
+      }, SchemaColumns.incomeWritable)
+    };
     
-    final response = await _client
-        .from('income')
-        .insert(payload)
-        .select()
-        .single();
-        
-    final confirmed = Map<String, dynamic>.from(response);
-    
+    // 1. Optimistic cache update
     final cached = LocalCacheService.getCachedData('income_$_userId') ?? [];
-    final updated = [confirmed, ...List<Map<String, dynamic>>.from(cached)];
+    final updated = [payload, ...List<Map<String, dynamic>>.from(cached)];
     await LocalCacheService.cacheData('income_$_userId', updated);
+
+    // 2. Queue the insert action
+    await LocalCacheService.queueAction(
+      actionType: 'insert',
+      path: 'income',
+      payload: payload,
+    );
     
-    return confirmed;
+    // 3. Trigger background sync immediately (non-blocking)
+    _syncManager.triggerSync();
+    
+    return payload;
   }
 
   Future<void> updateIncome(String id, Map<String, dynamic> data) async {

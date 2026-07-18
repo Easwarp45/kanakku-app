@@ -11,8 +11,10 @@ import '../../../core/theme/app_theme.dart';
 import '../../../../core/utils/error_mapper.dart';
 import '../data/income_service.dart';
 import '../../../core/utils/multi_currency_helper.dart';
+import '../../../core/utils/custom_source_helper.dart';
 import '../../../core/providers/preferences_provider.dart';
 import '../../../../core/utils/feedback_helper.dart';
+import '../../../../core/utils/validators.dart';
 
 class AddIncomeScreen extends ConsumerStatefulWidget {
   const AddIncomeScreen({super.key});
@@ -25,11 +27,21 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
   final _formKey = GlobalKey<FormState>();
   final _amountController = TextEditingController();
   final _descriptionController = TextEditingController();
+  final _customSourceController = TextEditingController();
   final ValueNotifier<String> _selectedSource = ValueNotifier('salary');
   final ValueNotifier<bool> _isRecurring = ValueNotifier(false);
   bool _isSaving = false;
   String _selectedCurrency = 'INR';
   DateTime _selectedDateTime = DateTime.now();
+
+  final List<String> _baseSources = [
+    'salary',
+    'freelance',
+    'business',
+    'investment',
+    'gift',
+    'refund',
+  ];
 
   final _quickAmounts = [1000, 5000, 10000, 25000, 50000];
 
@@ -113,7 +125,17 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
         final rate = prefs.rates[_selectedCurrency] ?? 1.0;
         final baseAmount = originalAmount / rate;
 
+        final isCustom = _selectedSource.value == 'Custom...' || !_baseSources.contains(_selectedSource.value);
         String finalDesc = _descriptionController.text.trim();
+
+        if (isCustom) {
+          final customName = _selectedSource.value == 'Custom...'
+              ? _customSourceController.text.trim()
+              : _selectedSource.value;
+          final sourceToken = CustomSourceData(name: customName.isNotEmpty ? customName : 'Other').toToken();
+          finalDesc = '$sourceToken $finalDesc';
+        }
+
         if (_selectedCurrency != 'INR') {
           final mcData = MultiCurrencyData(
             amount: originalAmount,
@@ -129,7 +151,7 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
         // amount, source (income_source enum), description, income_date, is_recurring
         await ref.read(incomeServiceProvider).addIncome({
           'amount': _selectedCurrency == 'INR' ? originalAmount : baseAmount,
-          'source': _selectedSource.value,
+          'source': isCustom ? 'other' : _selectedSource.value,
           'description': finalDesc,
           'income_date': _selectedDateTime.toIso8601String().split('T')[0],
           'is_recurring': _isRecurring.value,
@@ -154,6 +176,29 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final incomeAsync = ref.watch(incomeStreamProvider);
+    final Set<String> customSources = {};
+    incomeAsync.whenData((incomeList) {
+      for (var inc in incomeList) {
+        final desc = inc['description']?.toString() ?? '';
+        final customSrc = CustomSourceData.parse(desc);
+        if (customSrc != null && customSrc.name.trim().isNotEmpty) {
+          customSources.add(customSrc.name.trim());
+        }
+      }
+    });
+
+    final currentSelection = _selectedSource.value;
+    if (currentSelection != 'Custom...' && !_baseSources.contains(currentSelection)) {
+      customSources.add(currentSelection);
+    }
+
+    final allSources = [
+      ..._baseSources,
+      ...customSources.where((s) => !_baseSources.contains(s)),
+      'Custom...',
+    ];
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent, elevation: 0,
@@ -192,7 +237,25 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
                       const SizedBox(height: 24),
                       const Text('Source', style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
                       const SizedBox(height: 12),
-                      _buildSourceSelector(),
+                      _buildSourceSelector(allSources),
+                      ValueListenableBuilder<String>(
+                        valueListenable: _selectedSource,
+                        builder: (context, selected, _) {
+                          if (selected == 'Custom...') {
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 16),
+                              child: CustomTextField(
+                                label: 'Custom Source Name',
+                                hint: 'e.g. Rent, Dividend',
+                                controller: _customSourceController,
+                                prefixIcon: const Icon(LucideIcons.tag, color: AppColors.textTertiary),
+                                validator: (v) => v!.isEmpty ? 'Required' : null,
+                              ),
+                            );
+                          }
+                          return const SizedBox.shrink();
+                        },
+                      ),
                       const SizedBox(height: 24),
                       _buildDateSelector(),
                       const SizedBox(height: 24),
@@ -322,7 +385,7 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
                   contentPadding: EdgeInsets.zero,
                   filled: false,
                 ),
-                validator: (v) => v!.isEmpty ? 'Required' : null,
+                validator: Validators.validateAmount,
               ),
             ),
           ],
@@ -373,38 +436,52 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
     );
   }
 
-  Widget _buildSourceSelector() {
-    final sources = incomeSources.entries.toList();
+  Widget _buildSourceSelector(List<String> sourcesList) {
     return SizedBox(
       height: 48,
       child: ValueListenableBuilder<String>(
         valueListenable: _selectedSource,
         builder: (_, selected, _) => ListView.separated(
           scrollDirection: Axis.horizontal,
-          itemCount: sources.length,
+          itemCount: sourcesList.length,
           separatorBuilder: (_, _) => const SizedBox(width: 8),
           itemBuilder: (_, i) {
-            final source = sources[i];
-            final isSelected = selected == source.key;
+            final sourceKey = sourcesList[i];
+            final isSelected = selected == sourceKey;
+
+            final String emoji;
+            final String displayName;
+            if (sourceKey == 'Custom...') {
+              emoji = '🏷️';
+              displayName = 'Custom...';
+            } else if (_baseSources.contains(sourceKey)) {
+              final meta = incomeSources[sourceKey]!;
+              emoji = meta.emoji;
+              displayName = meta.displayName;
+            } else {
+              emoji = '💰';
+              displayName = sourceKey;
+            }
+
             return GestureDetector(
-              onTap: () => _selectedSource.value = source.key,
+              onTap: () => _selectedSource.value = sourceKey,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(
-                  color: isSelected ? AppColors.accentEmerald.withValues(alpha: 0.15) : AppColors.bgSecondary,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: isSelected ? AppColors.accentEmerald : AppColors.border),
-                ),
-                child: Row(
-                  children: [
-                    Text(source.value.emoji, style: const TextStyle(fontSize: 14)),
-                    const SizedBox(width: 8),
-                    Text(source.value.displayName, style: TextStyle(
-                      color: isSelected ? AppColors.accentEmerald : AppColors.textSecondary,
-                      fontSize: 12, fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                    )),
-                  ],
-                ),
+                 padding: const EdgeInsets.symmetric(horizontal: 14),
+                 decoration: BoxDecoration(
+                   color: isSelected ? AppColors.accentEmerald.withValues(alpha: 0.15) : AppColors.bgSecondary,
+                   borderRadius: BorderRadius.circular(14),
+                   border: Border.all(color: isSelected ? AppColors.accentEmerald : AppColors.border),
+                 ),
+                 child: Row(
+                   children: [
+                     Text(emoji, style: const TextStyle(fontSize: 14)),
+                     const SizedBox(width: 8),
+                     Text(displayName, style: TextStyle(
+                       color: isSelected ? AppColors.accentEmerald : AppColors.textSecondary,
+                       fontSize: 12, fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                     )),
+                   ],
+                 ),
               ),
             );
           },
@@ -444,6 +521,7 @@ class _AddIncomeScreenState extends ConsumerState<AddIncomeScreen> {
   void dispose() {
     _amountController.dispose();
     _descriptionController.dispose();
+    _customSourceController.dispose();
     _selectedSource.dispose();
     _isRecurring.dispose();
     super.dispose();

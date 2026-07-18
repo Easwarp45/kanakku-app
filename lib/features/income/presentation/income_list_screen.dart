@@ -9,6 +9,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/providers/preferences_provider.dart';
 import '../../../core/utils/multi_currency_helper.dart';
+import '../../../core/utils/custom_source_helper.dart';
 import '../data/income_service.dart';
 
 class IncomeListScreen extends ConsumerStatefulWidget {
@@ -388,9 +389,13 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
   Widget _buildIncomeCard(Map<String, dynamic> t) {
     final baseAmount = _parseAmt(t['amount']);
     final rawDesc = t['description']?.toString() ?? '';
-    final cleanDesc = MultiCurrencyData.cleanDescription(rawDesc);
+    final customSrc = CustomSourceData.parse(rawDesc);
+    final cleanDescAfterSrc = CustomSourceData.cleanDescription(rawDesc);
+    final cleanDesc = MultiCurrencyData.cleanDescription(cleanDescAfterSrc);
     final source = t['source']?.toString() ?? 'other';
-    final meta = incomeSources[source] ?? const IncomeSourceMeta('Other', '📦');
+    final meta = customSrc != null
+        ? IncomeSourceMeta(customSrc.name, '💰')
+        : (incomeSources[source] ?? const IncomeSourceMeta('Other', '📦'));
     
     DateTime? d = DateTime.tryParse(t['income_date']?.toString() ?? t['created_at']?.toString() ?? '');
     String dateStr = d != null ? DateFormat('MMM dd, yyyy').format(d) : 'Unknown';
@@ -480,10 +485,14 @@ class _IncomeListScreenState extends ConsumerState<IncomeListScreen> {
   void _showIncomeDetails(BuildContext context, Map<String, dynamic> t) {
     final baseAmount = _parseAmt(t['amount']);
     final rawDesc = t['description']?.toString() ?? '';
-    final cleanDesc = MultiCurrencyData.cleanDescription(rawDesc);
+    final customSrc = CustomSourceData.parse(rawDesc);
+    final cleanDescAfterSrc = CustomSourceData.cleanDescription(rawDesc);
+    final cleanDesc = MultiCurrencyData.cleanDescription(cleanDescAfterSrc);
     final displayDescription = cleanDesc.isNotEmpty ? cleanDesc : 'No description';
     final source = t['source']?.toString() ?? 'other';
-    final meta = incomeSources[source] ?? const IncomeSourceMeta('Other', '📦');
+    final meta = customSrc != null
+        ? IncomeSourceMeta(customSrc.name, '💰')
+        : (incomeSources[source] ?? const IncomeSourceMeta('Other', '📦'));
     final isRecurring = t['is_recurring'] == true;
 
     final prefs = ref.read(preferencesProvider);

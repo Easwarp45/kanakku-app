@@ -11,6 +11,7 @@ import '../../../core/theme/app_theme.dart';
 
 import '../data/expense_service.dart';
 import '../../../core/utils/multi_currency_helper.dart';
+import '../../../core/utils/custom_category_helper.dart';
 import '../../../core/providers/preferences_provider.dart';
 
 class TransactionsListScreen extends ConsumerStatefulWidget {
@@ -475,10 +476,13 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
   Widget _buildTransactionCard(Map<String, dynamic> t) {
     final baseAmount = t['amount'] is num ? (t['amount'] as num).toDouble() : double.tryParse(t['amount'].toString()) ?? 0.0;
     String rawTitle = _cleanDescription(t['description']?.toString() ?? '');
-    String rawCategory = t['category']?.toString() ?? 'Expense';
+    String dbCategory = t['category']?.toString() ?? 'Expense';
+
+    final customCat = CustomCategoryData.parse(t['description']?.toString() ?? '');
+    String displayCategory = customCat != null ? customCat.name : dbCategory;
     
     bool hasTitle = rawTitle.isNotEmpty && rawTitle.toLowerCase() != 'unknown';
-    String displayTitle = hasTitle ? rawTitle : _capitalize(rawCategory);
+    String displayTitle = hasTitle ? rawTitle : _capitalize(displayCategory);
     
     String formattedDate = '';
     final dateStr = t['expense_date']?.toString() ?? t['created_at']?.toString();
@@ -493,7 +497,7 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
       }
     }
 
-    String displaySubtitle = hasTitle ? '$formattedDate  •  ${_capitalize(rawCategory)}' : formattedDate;
+    String displaySubtitle = hasTitle ? '$formattedDate  •  ${_capitalize(displayCategory)}' : formattedDate;
 
     final prefs = ref.watch(preferencesProvider);
     final preferredCurrencyCode = supportedCurrencies[prefs.currencyIndex].code;
@@ -529,7 +533,7 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
             color: AppColors.bgSecondary,
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Icon(_getCategoryIcon(rawCategory), color: _getCategoryColor(rawCategory), size: 16),
+          child: Icon(_getCategoryIcon(dbCategory), color: _getCategoryColor(dbCategory), size: 16),
         ),
         title: Text(
           displayTitle,
@@ -582,7 +586,8 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
 
   String _cleanDescription(String raw) {
     final cleanGroup = raw.replaceFirst(RegExp(r'^\[GroupExpense:[^\]]+\]\s*'), '').trim();
-    return MultiCurrencyData.cleanDescription(cleanGroup);
+    final cleanMC = MultiCurrencyData.cleanDescription(cleanGroup);
+    return CustomCategoryData.cleanDescription(cleanMC);
   }
 
   IconData _getCategoryIcon(String category) {
@@ -649,10 +654,13 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
   void _showExpenseDetails(Map<String, dynamic> t) {
     final baseAmount = t['amount'] is num ? (t['amount'] as num).toDouble() : double.tryParse(t['amount'].toString()) ?? 0.0;
     String rawTitle = _cleanDescription(t['description']?.toString() ?? '');
-    String rawCategory = t['category']?.toString() ?? 'Expense';
+    String dbCategory = t['category']?.toString() ?? 'Expense';
+
+    final customCat = CustomCategoryData.parse(t['description']?.toString() ?? '');
+    String displayCategory = customCat != null ? customCat.name : dbCategory;
     
     bool hasTitle = rawTitle.isNotEmpty && rawTitle.toLowerCase() != 'unknown';
-    String displayTitle = hasTitle ? rawTitle : _capitalize(rawCategory);
+    String displayTitle = hasTitle ? rawTitle : _capitalize(displayCategory);
 
     final dateStr = t['expense_date']?.toString() ?? t['created_at']?.toString();
     DateTime? date = dateStr != null ? DateTime.tryParse(dateStr) : null;
@@ -702,10 +710,10 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
               height: 52,
               width: 52,
               decoration: BoxDecoration(
-                color: _getCategoryColor(rawCategory).withValues(alpha: 0.1),
+                color: _getCategoryColor(dbCategory).withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: Icon(_getCategoryIcon(rawCategory), color: _getCategoryColor(rawCategory), size: 24),
+              child: Icon(_getCategoryIcon(dbCategory), color: _getCategoryColor(dbCategory), size: 24),
             ),
             const SizedBox(height: 16),
             Text(displayTitle, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textPrimary, fontSize: 20, fontWeight: FontWeight.w700)),
@@ -727,7 +735,9 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
                 children: [
                   _detailItem(LucideIcons.calendar, 'Date', formattedFullDate),
                   const Divider(color: AppColors.border, height: 20),
-                  _detailItem(LucideIcons.tag, 'Category', _capitalize(rawCategory)),
+                  _detailItem(LucideIcons.tag, 'Category', _capitalize(displayCategory)),
+                  const Divider(color: AppColors.border, height: 20),
+                  _detailItem(LucideIcons.creditCard, 'Payment Method', _capitalize(t['payment_method']?.toString() ?? 'UPI')),
                   const Divider(color: AppColors.border, height: 20),
                   _detailItem(LucideIcons.alignLeft, 'Description', rawTitle.isNotEmpty ? rawTitle : 'No description provided'),
                   if (mcData != null) ...[
@@ -738,7 +748,7 @@ class _TransactionsListScreenState extends ConsumerState<TransactionsListScreen>
               ),
             ),
             const SizedBox(height: 16),
-            _buildBudgetGuardSection(rawCategory, baseAmount),
+            _buildBudgetGuardSection(dbCategory, baseAmount),
             const SizedBox(height: 24),
             Row(
               children: [

@@ -12,7 +12,6 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/preferences_provider.dart';
 import '../../../core/database/local_cache_service.dart';
 import '../../../core/utils/multi_currency_helper.dart';
-import '../../../core/database/supabase_service.dart';
 import '../../auth/presentation/passcode_screen.dart';
 import '../../expenses/data/expense_service.dart';
 import '../../income/data/income_service.dart';
@@ -291,22 +290,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ],
       Divider(color: AppColors.borderSubtle, height: 1),
       _buildSettingsTile(
-        LucideIcons.creditCard,
-        'UPI Payment Accounts',
-        'Link banks and view quick-receive QR codes',
-        AppColors.accentCyan,
-        onTap: () => context.push('/upi'),
-      ),
-      Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(
-        LucideIcons.cloudLightning,
-        'Cloud Backup & Sync',
-        'Sync ledger database safely to Supabase',
-        AppColors.accentEmerald,
-        onTap: _runCloudBackup,
-      ),
-      Divider(color: AppColors.borderSubtle, height: 1),
-      _buildSettingsTile(
         LucideIcons.download,
         'Export Data',
         'Download personal config as JSON report',
@@ -348,112 +331,44 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         'Disconnect session from this device safely',
         AppColors.accentRose,
         onTap: () async {
-          await ref.read(authServiceProvider).signOut();
-          if (mounted) {
-            context.go('/login');
+          final pendingCount = LocalCacheService.getPendingActions().length;
+          final confirm = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              backgroundColor: AppColors.bgElevated,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Text('Sign Out', style: TextStyle(color: AppColors.textPrimary)),
+              content: Text(
+                pendingCount > 0
+                    ? 'You have $pendingCount unsynced changes. Signing out will discard them permanently. Are you sure you want to sign out?'
+                    : 'Are you sure you want to sign out?',
+                style: const TextStyle(color: AppColors.textSecondary),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.accentRose),
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Sign Out', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            ),
+          ) ?? false;
+
+          if (confirm) {
+            await ref.read(authServiceProvider).signOut();
+            if (mounted) {
+              context.go('/login');
+            }
           }
         },
       ),
     ];
   }
-
-  void _runCloudBackup() async {
-    final stepNotifier = ValueNotifier<String>('Connecting to secure cloud nodes...');
-    final messenger = ScaffoldMessenger.of(context);
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return Dialog(
-          backgroundColor: AppColors.bgElevated,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: ValueListenableBuilder<String>(
-              valueListenable: stepNotifier,
-              builder: (context, step, _) {
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(
-                      width: 50,
-                      height: 50,
-                      child: CircularProgressIndicator(color: AppColors.accentCyan, strokeWidth: 3),
-                    ),
-                    const SizedBox(height: 20),
-                    const Text('SECURE CLOUD SYNC', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.accentCyan, letterSpacing: 1.5)),
-                    const SizedBox(height: 12),
-                    Text(step, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13), textAlign: TextAlign.center),
-                  ],
-                );
-              },
-            ),
-          ),
-        );
-      },
-    );
-
-    try {
-      await Future.delayed(const Duration(milliseconds: 800));
-      if (mounted) stepNotifier.value = 'Reconciling offline ledger actions...';
-      
-      // Perform actual sync
-      final syncManager = ref.read(realtimeSyncManagerProvider);
-      await syncManager.triggerSync();
-      
-      await Future.delayed(const Duration(milliseconds: 1000));
-      if (mounted) stepNotifier.value = 'Updating regional caches and profiles...';
-      
-      await Future.delayed(const Duration(milliseconds: 800));
-      
-      if (mounted) {
-        Navigator.pop(context); // Close dialog
-        messenger.showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(LucideIcons.checkCircle, color: Colors.white, size: 20),
-                SizedBox(width: 12),
-                Text('Cloud ledger sync completed successfully!'),
-              ],
-            ),
-            backgroundColor: AppColors.accentEmerald,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context); // Close dialog
-        messenger.showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(LucideIcons.alertTriangle, color: Colors.white, size: 20),
-                const SizedBox(width: 12),
-                Expanded(child: Text('Sync failed: $e')),
-              ],
-            ),
-            backgroundColor: AppColors.accentRose,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
-      }
-    } finally {
-      stepNotifier.dispose();
-    }
-  }
-
   Future<void> _exportData() async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(child: CircularProgressIndicator(color: AppColors.accentCyan)),
-    );
-
     try {
       final prefs = ref.read(preferencesProvider);
       final user = ref.read(currentUserProvider);
@@ -492,10 +407,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final file = File('${tempDir.path}/kanakku_export_${DateTime.now().millisecondsSinceEpoch}.json');
       await file.writeAsString(jsonString);
 
-      if (mounted) {
-        Navigator.pop(context); // Close loading
-      }
-
       await SharePlus.instance.share(
         ShareParams(
           files: [XFile(file.path)],
@@ -504,7 +415,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       );
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context); // Close loading
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Export failed: $e'), backgroundColor: AppColors.accentRose),
         );
@@ -582,7 +492,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return StatefulBuilder(
           builder: (modalContext, setModalState) {
             return Container(
-              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              padding: EdgeInsets.only(bottom: MediaQuery.of(modalContext).viewInsets.bottom),
               decoration: const BoxDecoration(
                 color: AppColors.bgSecondary,
                 borderRadius: BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24)),
@@ -759,7 +669,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return StatefulBuilder(
           builder: (modalContext, setModalState) {
             return Container(
-              height: MediaQuery.of(context).size.height * 0.8,
+              height: MediaQuery.of(modalContext).size.height * 0.8,
               decoration: const BoxDecoration(
                 color: AppColors.bgSecondary,
                 borderRadius: BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24)),

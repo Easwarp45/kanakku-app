@@ -155,7 +155,10 @@ class PreferencesState {
 }
 
 class PreferencesNotifier extends Notifier<PreferencesState> {
-  final Dio _dio = Dio();
+  final Dio _dio = Dio(BaseOptions(
+    connectTimeout: const Duration(seconds: 5),
+    receiveTimeout: const Duration(seconds: 5),
+  ));
 
   @override
   PreferencesState build() {
@@ -188,6 +191,8 @@ class PreferencesNotifier extends Notifier<PreferencesState> {
     final user = ref.read(currentUserProvider);
     return user != null ? 'pref_${user.id}_' : 'pref_guest_';
   }
+
+  String get userPrefix => _userPrefix;
 
   PreferencesState _getLoadedState() {
     final prefix = _userPrefix;
@@ -224,7 +229,7 @@ class PreferencesNotifier extends Notifier<PreferencesState> {
         String passcode = LocalCacheService.getCachedData('${prefix}passcodePin') ?? '';
         if (passcode.isNotEmpty && passcode.length != 64) {
           final legacy = passcode;
-          passcode = SecurityHelper.hashPasscode(legacy);
+          passcode = SecurityHelper.hashPasscode(legacy, salt: prefix);
           Future.microtask(() async {
             await LocalCacheService.cacheData('${prefix}passcodePin', passcode);
           });
@@ -374,7 +379,7 @@ class PreferencesNotifier extends Notifier<PreferencesState> {
   }
 
   Future<void> updatePasscodePin(String pin) async {
-    final hashedPin = pin.isEmpty ? '' : SecurityHelper.hashPasscode(pin);
+    final hashedPin = pin.isEmpty ? '' : SecurityHelper.hashPasscode(pin, salt: _userPrefix);
     state = state.copyWith(passcodePin: hashedPin);
     await LocalCacheService.cacheData('${_userPrefix}passcodePin', hashedPin);
   }

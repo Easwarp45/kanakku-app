@@ -10,10 +10,12 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../data/expense_service.dart';
 import '../../../../core/utils/multi_currency_helper.dart';
+import '../../../../core/utils/custom_category_helper.dart';
 import '../../../../core/providers/preferences_provider.dart';
 import '../../../../core/database/schema_constants.dart';
 import '../../../../core/utils/error_mapper.dart';
 import '../../../../core/utils/feedback_helper.dart';
+import '../../../../core/utils/validators.dart';
 
 class EditExpenseScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic> expense;
@@ -27,12 +29,14 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _amountController;
   late final TextEditingController _descController;
+  late final TextEditingController _customCategoryController;
   late final ValueNotifier<String> _selectedCategory;
+  late final ValueNotifier<String> _selectedPaymentMethod;
   bool _isSaving = false;
   String _selectedCurrency = 'INR';
   late DateTime _selectedDateTime;
 
-  final List<String> _categories = [
+  final List<String> _baseCategories = [
     'Food & Dining',
     'Transportation',
     'Housing',
@@ -42,33 +46,77 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
     'Utilities',
   ];
 
+  final List<String> _paymentMethods = [
+    'UPI',
+    'Cash',
+    'Card',
+    'Bank Transfer',
+    'Other',
+  ];
+
   // Maps display names → DB expense_category enum values
   static const _categoryToEnum = expenseCategoryToEnum;
 
   // Reverse map: DB enum → display name
   static const _enumToCategory = expenseEnumToCategory;
 
+  static const _paymentMethodToEnum = {
+    'UPI': 'upi',
+    'Cash': 'cash',
+    'Card': 'card',
+    'Bank Transfer': 'bank_transfer',
+    'Other': 'other',
+  };
+
+  static const _enumToPaymentMethod = {
+    'upi': 'UPI',
+    'cash': 'Cash',
+    'card': 'Card',
+    'bank_transfer': 'Bank Transfer',
+    'other': 'Other',
+  };
+
   @override
   void initState() {
     super.initState();
     final rawDesc = widget.expense['description']?.toString() ?? '';
     final mcData = MultiCurrencyData.parse(rawDesc);
-    
+    final customCat = CustomCategoryData.parse(rawDesc);
+
+    // Extract custom category name if present
+    String cleanDescText = rawDesc;
+    if (customCat != null) {
+      cleanDescText = CustomCategoryData.cleanDescription(cleanDescText);
+      _customCategoryController = TextEditingController(text: customCat.name);
+    } else {
+      _customCategoryController = TextEditingController();
+    }
+
     if (mcData != null) {
       _selectedCurrency = mcData.currency;
       _amountController = TextEditingController(text: mcData.amount.toStringAsFixed(2));
-      _descController = TextEditingController(text: MultiCurrencyData.cleanDescription(rawDesc));
+      _descController = TextEditingController(text: MultiCurrencyData.cleanDescription(cleanDescText));
     } else {
       _selectedCurrency = 'INR';
       final amount = widget.expense['amount']?.toString() ?? '0.00';
       _amountController = TextEditingController(text: amount);
-      _descController = TextEditingController(text: rawDesc);
+      _descController = TextEditingController(text: cleanDescText);
     }
     
     // Map DB enum value back to display name
     String dbCat = widget.expense['category']?.toString() ?? 'other';
-    String displayCat = _enumToCategory[dbCat] ?? _categories.first;
+    String displayCat = 'Food & Dining';
+    if (customCat != null) {
+      displayCat = customCat.name;
+    } else {
+      displayCat = _enumToCategory[dbCat] ?? _baseCategories.first;
+    }
     _selectedCategory = ValueNotifier<String>(displayCat);
+
+    // Initialize Payment Method
+    String dbPaymentMethod = widget.expense['payment_method']?.toString() ?? 'upi';
+    String displayPaymentMethod = _enumToPaymentMethod[dbPaymentMethod] ?? 'UPI';
+    _selectedPaymentMethod = ValueNotifier<String>(displayPaymentMethod);
 
     final dateStr = widget.expense['expense_date']?.toString() ?? widget.expense['created_at']?.toString();
     _selectedDateTime = dateStr != null ? (DateTime.tryParse(dateStr) ?? DateTime.now()) : DateTime.now();
@@ -149,6 +197,17 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
         final baseAmount = originalAmount / rate;
 
         String finalDesc = _descController.text.trim();
+        final isCustom = _selectedCategory.value == 'Custom...' || !_baseCategories.contains(_selectedCategory.value);
+
+        // Handle Custom Category serialization inside the description field.
+        if (isCustom) {
+          final customName = _selectedCategory.value == 'Custom...'
+              ? _customCategoryController.text.trim()
+              : _selectedCategory.value;
+          final categoryToken = CustomCategoryData(name: customName.isNotEmpty ? customName : 'Other').toToken();
+          finalDesc = '$categoryToken $finalDesc';
+        }
+
         if (_selectedCurrency != 'INR') {
           final mcData = MultiCurrencyData(
             amount: originalAmount,
@@ -165,7 +224,8 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
           {
             'description': finalDesc,
             'amount': _selectedCurrency == 'INR' ? originalAmount : baseAmount,
-            'category': _categoryToEnum[_selectedCategory.value] ?? 'other',
+            'category': isCustom ? 'other' : (_categoryToEnum[_selectedCategory.value] ?? 'other'),
+            'payment_method': _paymentMethodToEnum[_selectedPaymentMethod.value] ?? 'upi',
             'expense_date': _selectedDateTime.toIso8601String().split('T')[0],
           }
         );
@@ -191,6 +251,30 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Watch current transaction list to retrieve previously used custom categories
+    final expensesAsync = ref.watch(expensesStreamProvider);
+    final Set<String> customCategories = {};
+    expensesAsync.whenData((expenses) {
+      for (var e in expenses) {
+        final desc = e['description']?.toString() ?? '';
+        final customCat = CustomCategoryData.parse(desc);
+        if (customCat != null && customCat.name.trim().isNotEmpty) {
+          customCategories.add(customCat.name.trim());
+        }
+      }
+    });
+
+    final currentSelection = _selectedCategory.value;
+    if (currentSelection != 'Custom...' && !_baseCategories.contains(currentSelection)) {
+      customCategories.add(currentSelection);
+    }
+
+    final allCategories = [
+      ..._baseCategories,
+      ...customCategories.where((c) => !_baseCategories.contains(c)),
+      'Custom...',
+    ];
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -240,7 +324,36 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      _buildCategorySelector(),
+                      _buildCategorySelector(allCategories),
+                      ValueListenableBuilder<String>(
+                        valueListenable: _selectedCategory,
+                        builder: (context, selectedCategory, _) {
+                          if (selectedCategory == 'Custom...') {
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 16),
+                              child: CustomTextField(
+                                label: 'Custom Category Name',
+                                hint: 'Enter category name (e.g. Subscriptions)',
+                                controller: _customCategoryController,
+                                prefixIcon: const Icon(LucideIcons.tag, color: AppColors.textTertiary),
+                                validator: (v) => _selectedCategory.value == 'Custom...' && v!.isEmpty ? 'Required' : null,
+                              ),
+                            );
+                          }
+                          return const SizedBox.shrink();
+                        },
+                      ),
+                      const SizedBox(height: 24),
+                      const Text(
+                        'Payment Method',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildPaymentMethodSelector(),
                       const SizedBox(height: 24),
                       _buildDateSelector(),
                     ],
@@ -353,7 +466,7 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
                   contentPadding: EdgeInsets.zero,
                   filled: false,
                 ),
-                validator: (v) => v!.isEmpty ? 'Required' : null,
+                validator: Validators.validateAmount,
               ),
             ),
           ],
@@ -373,7 +486,7 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
     );
   }
 
-  Widget _buildCategorySelector() {
+  Widget _buildCategorySelector(List<String> categories) {
     final categoryMeta = <String, ({IconData icon, String emoji})>{
       'Food & Dining': (icon: LucideIcons.utensilsCrossed, emoji: '🍽'),
       'Transportation': (icon: LucideIcons.car, emoji: '🚗'),
@@ -382,45 +495,96 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
       'Health': (icon: LucideIcons.heartPulse, emoji: '💊'),
       'Shopping': (icon: LucideIcons.shoppingBag, emoji: '🛍'),
       'Utilities': (icon: LucideIcons.zap, emoji: '⚡'),
+      'Custom...': (icon: LucideIcons.tag, emoji: '🏷'),
     };
 
     return SizedBox(
       height: 52,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-      child: ValueListenableBuilder<String>(
-        valueListenable: _selectedCategory,
-        builder: (context, selectedCategory, _) {
-          return Row(
-            children: _categories.map((category) {
-              final isSelected = selectedCategory == category;
-              final meta = categoryMeta[category] ?? (icon: LucideIcons.circle, emoji: '•');
-              return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: GestureDetector(
-                onTap: () => _selectedCategory.value = category,
-                child: Container(
-                  height: 44,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  decoration: BoxDecoration(
-                    color: isSelected ? AppColors.accentPurple.withValues(alpha: 0.15) : AppColors.bgSecondary,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: isSelected ? AppColors.accentPurple : AppColors.border, width: 1),
+        child: ValueListenableBuilder<String>(
+          valueListenable: _selectedCategory,
+          builder: (context, selectedCategory, _) {
+            return Row(
+              children: categories.map((category) {
+                final isSelected = selectedCategory == category;
+                final meta = categoryMeta[category] ?? (icon: LucideIcons.tag, emoji: '🏷');
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: GestureDetector(
+                    onTap: () => _selectedCategory.value = category,
+                    child: Container(
+                      height: 44,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: BoxDecoration(
+                        color: isSelected ? AppColors.accentPurple.withValues(alpha: 0.15) : AppColors.bgSecondary,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: isSelected ? AppColors.accentPurple : AppColors.border, width: 1),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(meta.emoji, style: const TextStyle(fontSize: 14)),
+                          const SizedBox(width: 8),
+                          Text(category, style: TextStyle(color: isSelected ? AppColors.accentPurple : AppColors.textSecondary, fontSize: 12, fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500)),
+                        ],
+                      ),
+                    ),
                   ),
-                  child: Row(
-                    children: [
-                      Text(meta.emoji, style: const TextStyle(fontSize: 14)),
-                      const SizedBox(width: 8),
-                      Text(category, style: TextStyle(color: isSelected ? AppColors.accentPurple : AppColors.textSecondary, fontSize: 12, fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500)),
-                    ],
-                  ),
-                ),
-              ),
+                );
+              }).toList(),
             );
-            }).toList(),
-          );
-        },
+          },
+        ),
       ),
+    );
+  }
+
+  Widget _buildPaymentMethodSelector() {
+    final methodMeta = <String, ({IconData icon, String label})>{
+      'UPI': (icon: LucideIcons.smartphone, label: 'UPI'),
+      'Cash': (icon: LucideIcons.coins, label: 'Cash'),
+      'Card': (icon: LucideIcons.creditCard, label: 'Card'),
+      'Bank Transfer': (icon: LucideIcons.wallet, label: 'Bank Transfer'),
+      'Other': (icon: LucideIcons.helpCircle, label: 'Other'),
+    };
+
+    return SizedBox(
+      height: 52,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: ValueListenableBuilder<String>(
+          valueListenable: _selectedPaymentMethod,
+          builder: (context, selectedMethod, _) {
+            return Row(
+              children: _paymentMethods.map((method) {
+                final isSelected = selectedMethod == method;
+                final meta = methodMeta[method] ?? (icon: LucideIcons.circle, label: method);
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: GestureDetector(
+                    onTap: () => _selectedPaymentMethod.value = method,
+                    child: Container(
+                      height: 44,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: BoxDecoration(
+                        color: isSelected ? AppColors.accentCyan.withValues(alpha: 0.15) : AppColors.bgSecondary,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: isSelected ? AppColors.accentCyan : AppColors.border, width: 1),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(meta.icon, color: isSelected ? AppColors.accentCyan : AppColors.textSecondary, size: 16),
+                          const SizedBox(width: 8),
+                          Text(method, style: TextStyle(color: isSelected ? AppColors.accentCyan : AppColors.textSecondary, fontSize: 12, fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500)),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            );
+          },
+        ),
       ),
     );
   }
@@ -456,7 +620,9 @@ class _EditExpenseScreenState extends ConsumerState<EditExpenseScreen> {
   void dispose() {
     _amountController.dispose();
     _descController.dispose();
+    _customCategoryController.dispose();
     _selectedCategory.dispose();
+    _selectedPaymentMethod.dispose();
     super.dispose();
   }
 }

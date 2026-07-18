@@ -1,3 +1,9 @@
+plugins {
+    id("com.android.application") version "8.11.1" apply false
+    id("com.android.library") version "8.11.1" apply false
+    id("org.jetbrains.kotlin.android") version "2.2.20" apply false
+}
+
 allprojects {
     repositories {
         google()
@@ -17,6 +23,12 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(":app")
+}
+
+subprojects {
+    tasks.withType<JavaCompile>().configureEach {
+        options.compilerArgs.add("-Xlint:-options")
+    }
 }
 
 tasks.register<Delete>("clean") {

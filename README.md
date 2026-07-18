@@ -9,7 +9,7 @@ The application leverages a dark glassmorphic UI design, combining visually stun
 ## 🚀 Key Features
 
 ### 1. Shared Group Ledgers (`/groups`)
-*   **Create or Join Groups**: Instantly create groups or join existing ones using a unique 6-character alphanumeric invite code.
+*   **Create or Join Groups**: Instantly create groups or join existing ones using a unique 6-character invite code.
 *   **Group Expenses & Splits**: Log shared transactions with split types:
     *   `equal`: Splits the amount equally among all group members.
     *   `custom`: Splits the amount using custom-defined balances per member.
@@ -18,19 +18,25 @@ The application leverages a dark glassmorphic UI design, combining visually stun
 
 ### 2. Personal Finance Ledger (`/dashboard`)
 *   **Income & Expense Management**: Track personal expenses and income categories.
+*   **Dynamic Custom Categories**: Add custom categories on-the-fly inside the category selection bar. Previously created custom categories are loaded dynamically as chips for instant one-tap reuse.
+*   **Custom Income Sources**: Input arbitrary source names when logging income. Previously used custom sources are automatically pre-populated as chips.
+*   **Payment Method Tracking**: Accurately classify personal expenses under payment methods (UPI, Cash, Card, Bank Transfer, or Other).
 *   **Smart Auto-Replication**: Group expenses paid by the current user are replicated automatically into their personal transaction history.
-*   **UPI Payment Accounts**: Manage and display bank accounts with dynamic UPI QR codes for quick payments.
 
-### 3. Smart Financial Insights (`/insights`)
-*   **Financial Health Score**: A dynamic score (10–100) combining savings rates, category budget overruns, and financial runway.
-*   **Reserves & Runway**: Estimates how many months of typical expenses your current balance can support.
-*   **Lifestyle Personas**: Gamified profiles (e.g., *Saver*, *Spender*) based on spending patterns.
+### 3. Financial Intelligence Center 2.0 (`/insights`)
+*   **Personal Financial Advisor**: A gorgeous, interactive panel interpreting your financial data in real time.
+*   **Financial Health Score**: Dynamic indicator score (10–100) computed based on savings rates, category budget overruns, and financial runway metrics.
+*   **Spending Pattern Detectors**: Advanced pattern analysis highlighting late-night spending spikes or weekend spending patterns.
+*   **Runway & Goal Forecast Engine**: Machine-learning style forecasting of monthly runaways, future expenses, and savings goal completion dates.
+*   **Gamified Lifstyle Personas**: Classifies spending behavior into animated card personas (e.g., *Sovereign Saver*, *Vibrant Voyager*).
+*   **Milestones & Achievements**: Unlocks trophies and challenges (e.g., *Debt Buster*, *Budget Boss*) based on savings behavior.
 
 ### 4. Security & Preferences (`/settings`)
 *   **App Lock**: Secure the app database with a 4-digit PIN passcode.
 *   **Change Passcode**: Dynamically verify current PIN and update it within security settings.
 *   **Local Cache & Sync**: Optimistic local state rendering with background synchronization.
-*   **Export/Import Data**: Safe export and import of personal configuration databases as JSON files.
+*   **Export/Import Data**: Safe export and import of personal configuration databases as JSON files (instantaneous local operations, removing visual blocking overlay dialogs to ensure seamless execution).
+*   **Clean Core Settings**: Streamlined configuration page focused strictly on preference and security controls.
 
 ---
 

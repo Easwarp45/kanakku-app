@@ -1,5 +1,3 @@
-library lucide_icons;
-
 import 'package:flutter/material.dart';
 
 class LucideIcons {

@@ -144,9 +144,11 @@ class LocalCacheService {
 
       try {
         final decoded = Map<String, dynamic>.from(jsonDecode(item as String) as Map);
+        final key = _queueBox.keyAt(index);
         actions.add({
           ...decoded,
           '_queueIndex': index,
+          '_queueKey': key,
         });
       } catch (_) {
         // Skip corrupt queue entries and let future writes continue normally.
@@ -163,6 +165,12 @@ class LocalCacheService {
       final key = _queueBox.keyAt(index);
       await _queueBox.delete(key);
     }
+  }
+
+  /// Delete a pending action by its unique persistent Hive key
+  static Future<void> clearPendingActionByKey(dynamic key) async {
+    if (!_initialized) return;
+    await _queueBox.delete(key);
   }
 
   /// Clear entire pending queue

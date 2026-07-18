@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'local_cache_service.dart';
 import 'schema_constants.dart';
@@ -96,22 +97,23 @@ class RealtimeSyncManager {
       return (a['timestamp'] as String).compareTo(b['timestamp'] as String);
     });
 
-    // Track which hive keys to delete (by their original position)
+    // Track which hive keys to delete (by their unique keys)
     final Set<String> processedHashes = {};
-    final List<int> indicesToDelete = [];
+    final List<dynamic> keysToDelete = [];
 
     try {
+      final user = _client.auth.currentUser;
       for (int i = 0; i < sorted.length; i++) {
         final action = sorted[i];
-        final queueIndex = action['_queueIndex'] as int?;
-        if (queueIndex == null) {
+        final queueKey = action['_queueKey'];
+        if (queueKey == null) {
           continue;
         }
         
         // Deduplication: skip if same action hash already processed this session
         final hash = _actionHash(action);
         if (processedHashes.contains(hash)) {
-          indicesToDelete.add(queueIndex);
+          keysToDelete.add(queueKey);
           continue;
         }
         
@@ -123,7 +125,7 @@ class RealtimeSyncManager {
         if (path == 'group_chats') {
           // For chat messages, do a direct insert (no queue replay needed 
           // since sendChatMessage already calls Supabase directly)
-          indicesToDelete.add(queueIndex);
+          keysToDelete.add(queueKey);
           processedHashes.add(hash);
           continue;
         }
@@ -133,7 +135,23 @@ class RealtimeSyncManager {
           if (type == 'insert') {
             final cleanPayload = _sanitizePayload(path, payload)
               ..remove('id');
-            await _client.from(path).insert(cleanPayload);
+            final response = await _client.from(path).insert(cleanPayload).select().single();
+            final confirmed = Map<String, dynamic>.from(response);
+
+            // Reconcile ID in local cache
+            final tempId = payload['id']?.toString();
+            if (tempId != null && tempId.startsWith('temp_') && user != null) {
+              final cacheKey = '${path}_${user.id}';
+              final cached = LocalCacheService.getCachedData(cacheKey) ?? [];
+              final updated = List<Map<String, dynamic>>.from(cached).map((e) {
+                if (e['id']?.toString() == tempId) {
+                  return confirmed;
+                }
+                return e;
+              }).toList();
+              await LocalCacheService.cacheData(cacheKey, updated);
+            }
+
             success = true;
           } else if (type == 'update') {
             final id = payload['id']?.toString();
@@ -152,23 +170,26 @@ class RealtimeSyncManager {
             }
             success = true;
           }
+        } on PostgrestException catch (e) {
+          // A permanent database logic/constraint/RLS error: mark as success to clear from queue
+          success = true;
+          // Log standard print for audit trail
+          debugPrint('[SYNC ERROR] Permanent PostgrestException on $path: $e');
         } catch (_) {
           // Network error — stop processing, retry on next cycle
           break;
         }
 
         if (success) {
-          indicesToDelete.add(queueIndex);
+          keysToDelete.add(queueKey);
           processedHashes.add(hash);
         }
       }
     } finally {
-      // Delete processed entries in reverse order to preserve indices
-      final sortedIndices = indicesToDelete.toSet().toList()
-        ..sort((a, b) => b.compareTo(a));
-      for (final idx in sortedIndices) {
+      // Delete processed entries by key
+      for (final key in keysToDelete) {
         try {
-          await LocalCacheService.clearPendingAction(idx);
+          await LocalCacheService.clearPendingActionByKey(key);
         } catch (_) {}
       }
       _isSyncing = false;
@@ -186,7 +207,7 @@ class RealtimeSyncManager {
           'Sync Successful ✅',
           'All offline actions successfully synchronized!',
         );
-      } else if (indicesToDelete.isEmpty) {
+      } else if (keysToDelete.isEmpty) {
         NotificationService().showNotification(
           id: 9003,
           title: 'Sync Failed ❌',
@@ -201,12 +222,12 @@ class RealtimeSyncManager {
         NotificationService().showNotification(
           id: 9004,
           title: 'Sync Warning ⚠️',
-          body: 'Synchronized ${indicesToDelete.length} actions, ${currentQueue.length} remaining.',
+          body: 'Synchronized ${keysToDelete.length} actions, ${currentQueue.length} remaining.',
           type: 'offline_sync',
         );
         _insertSyncNotification(
           'Sync Warning ⚠️',
-          'Synchronized ${indicesToDelete.length} actions, ${currentQueue.length} remaining.',
+          'Synchronized ${keysToDelete.length} actions, ${currentQueue.length} remaining.',
         );
       }
     }

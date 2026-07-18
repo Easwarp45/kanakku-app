@@ -84,7 +84,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
                     title: const Text('Morning Financial Brief', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                     subtitle: const Text('Summary of balance, budget, and targets at start of day', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                     value: settings.morningBriefEnabled,
-                    activeColor: AppColors.accentPurple,
+                    activeThumbColor: AppColors.accentPurple,
                     onChanged: (val) async {
                       await ref.read(notificationSettingsProvider.notifier).updateMorningBriefEnabled(val);
                       await syncSchedules();
@@ -124,7 +124,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
                     title: const Text('Evening Financial Summary', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                     subtitle: const Text('Analysis of today\'s spending, earnings, and trends', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                     value: settings.eveningSummaryEnabled,
-                    activeColor: AppColors.accentPurple,
+                    activeThumbColor: AppColors.accentPurple,
                     onChanged: (val) async {
                       await ref.read(notificationSettingsProvider.notifier).updateEveningSummaryEnabled(val);
                       await syncSchedules();
@@ -174,7 +174,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
                     title: const Text('Budget Limits', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                     subtitle: const Text('Notify when category spending reaches 80%, 90%, 100%', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                     value: settings.budgetAlertsEnabled,
-                    activeColor: AppColors.accentPurple,
+                    activeThumbColor: AppColors.accentPurple,
                     onChanged: (val) => ref.read(notificationSettingsProvider.notifier).updateBudgetAlertsEnabled(val),
                   ),
                   Divider(color: AppColors.borderSubtle),
@@ -182,7 +182,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
                     title: const Text('Goal Progress', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                     subtitle: const Text('Milestones, deadlines, and contribution reminders', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                     value: settings.goalAlertsEnabled,
-                    activeColor: AppColors.accentPurple,
+                    activeThumbColor: AppColors.accentPurple,
                     onChanged: (val) => ref.read(notificationSettingsProvider.notifier).updateGoalAlertsEnabled(val),
                   ),
                 ],
@@ -200,7 +200,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
                     title: const Text('Group Activity', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                     subtitle: const Text('New group expenses, chat updates, and members joined', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                     value: settings.groupAlertsEnabled,
-                    activeColor: AppColors.accentPurple,
+                    activeThumbColor: AppColors.accentPurple,
                     onChanged: (val) => ref.read(notificationSettingsProvider.notifier).updateGroupAlertsEnabled(val),
                   ),
                   Divider(color: AppColors.borderSubtle),
@@ -208,7 +208,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
                     title: const Text('Settlement Notifications', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                     subtitle: const Text('Notify when group payments are recorded or received', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                     value: settings.settlementAlertsEnabled,
-                    activeColor: AppColors.accentPurple,
+                    activeThumbColor: AppColors.accentPurple,
                     onChanged: (val) => ref.read(notificationSettingsProvider.notifier).updateSettlementAlertsEnabled(val),
                   ),
                 ],
@@ -226,7 +226,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
                     title: const Text('Weekly Summaries', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                     subtitle: const Text('Weekly performance analysis delivered on Sundays', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                     value: settings.weeklyReportEnabled,
-                    activeColor: AppColors.accentPurple,
+                    activeThumbColor: AppColors.accentPurple,
                     onChanged: (val) async {
                       await ref.read(notificationSettingsProvider.notifier).updateWeeklyReportEnabled(val);
                       await syncSchedules();
@@ -237,7 +237,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
                     title: const Text('Monthly Wrap Up', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                     subtitle: const Text('Complete budget, savings, and trends analysis at month end', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                     value: settings.monthlyReportEnabled,
-                    activeColor: AppColors.accentPurple,
+                    activeThumbColor: AppColors.accentPurple,
                     onChanged: (val) => ref.read(notificationSettingsProvider.notifier).updateMonthlyReportEnabled(val),
                   ),
                 ],
@@ -255,21 +255,21 @@ class NotificationSettingsScreen extends ConsumerWidget {
                     title: const Text('Offline Ledger Sync', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                     subtitle: const Text('Banners on sync started, completed, or failed offline queues', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                     value: settings.offlineSyncAlertsEnabled,
-                    activeColor: AppColors.accentPurple,
+                    activeThumbColor: AppColors.accentPurple,
                     onChanged: (val) => ref.read(notificationSettingsProvider.notifier).updateOfflineSyncAlertsEnabled(val),
                   ),
                   Divider(color: AppColors.borderSubtle),
                   SwitchListTile(
                     title: const Text('Notification Sound', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w500)),
                     value: settings.soundEnabled,
-                    activeColor: AppColors.accentPurple,
+                    activeThumbColor: AppColors.accentPurple,
                     onChanged: (val) => ref.read(notificationSettingsProvider.notifier).updateSoundEnabled(val),
                   ),
                   Divider(color: AppColors.borderSubtle),
                   SwitchListTile(
                     title: const Text('Notification Vibration', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w500)),
                     value: settings.vibrationEnabled,
-                    activeColor: AppColors.accentPurple,
+                    activeThumbColor: AppColors.accentPurple,
                     onChanged: (val) => ref.read(notificationSettingsProvider.notifier).updateVibrationEnabled(val),
                   ),
                   Divider(color: AppColors.borderSubtle),
@@ -277,7 +277,7 @@ class NotificationSettingsScreen extends ConsumerWidget {
                     title: const Text('Do Not Disturb', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                     subtitle: const Text('Silence all incoming local notifications and briefs', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                     value: settings.doNotDisturb,
-                    activeColor: AppColors.accentRose,
+                    activeThumbColor: AppColors.accentRose,
                     onChanged: (val) => ref.read(notificationSettingsProvider.notifier).updateDoNotDisturb(val),
                   ),
                 ],

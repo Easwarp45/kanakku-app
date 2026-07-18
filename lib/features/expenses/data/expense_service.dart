@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/database/supabase_service.dart';
+import '../../../core/database/realtime_sync_manager.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/database/local_cache_service.dart';
 import '../../../core/providers/preferences_provider.dart';
@@ -11,9 +13,8 @@ import '../../../core/database/schema_constants.dart';
 final expenseServiceProvider = Provider<ExpenseService>((ref) {
   final client = ref.watch(supabaseClientProvider);
   final user = ref.watch(currentUserProvider);
-  // Warm up RealtimeSyncManager
-  ref.read(realtimeSyncManagerProvider);
-  return ExpenseService(client, user?.id);
+  final syncManager = ref.read(realtimeSyncManagerProvider);
+  return ExpenseService(client, user?.id, syncManager);
 });
 
 final expensesStreamProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
@@ -66,8 +67,9 @@ double _parseAmount(dynamic amount) {
 class ExpenseService {
   final SupabaseClient _client;
   final String? _userId;
+  final RealtimeSyncManager _syncManager;
 
-  ExpenseService(this._client, this._userId);
+  ExpenseService(this._client, this._userId, this._syncManager);
 
   Stream<List<Map<String, dynamic>>> getExpensesStream() {
     if (_userId == null) return Stream.value([]);
@@ -87,9 +89,19 @@ class ExpenseService {
         .eq('user_id', _userId)
         .order('expense_date', ascending: false)
         .listen((data) {
-          LocalCacheService.cacheData('expenses_$_userId', data);
+          // Merge local unsynced temporary records to prevent them from being wiped out
+          final cached = LocalCacheService.getCachedData('expenses_$_userId') ?? [];
+          final tempRecords = List<Map<String, dynamic>>.from(cached)
+              .where((e) => e['id']?.toString().startsWith('temp_') ?? false);
+          
+          final merged = [
+            ...tempRecords,
+            ...data.where((e) => !(e['id']?.toString().startsWith('temp_') ?? false)),
+          ];
+
+          LocalCacheService.cacheData('expenses_$_userId', merged);
           if (!controller.isClosed) {
-            controller.add(data);
+            controller.add(merged);
           }
         }, onError: (_) {});
 
@@ -101,40 +113,48 @@ class ExpenseService {
     return controller.stream;
   }
 
-  /// Inserts directly into Supabase so the write is authoritative and visible
-  /// to the React client via Realtime immediately.
+  /// Inserts optimistically into local cache and queues background sync
   Future<Map<String, dynamic>> addExpense(Map<String, dynamic> expense) async {
     if (_userId == null) throw Exception('User not authenticated');
 
     final amount = expense['amount'];
     if (amount == null) throw Exception('Amount is required');
 
-    final payload = filterPayload({
-      'user_id': _userId,
-      'amount': amount,
-      'category': sanitizeExpenseCategory(expense['category'] ?? 'other'),
-      'description': expense['description'] ?? '',
-      'payment_method': sanitizePaymentMethod(expense['payment_method'] ?? 'upi'),
-      'expense_date': toDateOnly(expense['expense_date']),
-      'receipt_url': expense['receipt_url'],
-    }, SchemaColumns.expensesWritable);
+    final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}_${math.Random().nextInt(1000)}';
 
-    final response = await _client
-        .from('expenses')
-        .insert(payload)
-        .select()
-        .single();
+    final payload = {
+      'id': tempId,
+      'created_at': DateTime.now().toIso8601String(),
+      ...filterPayload({
+        'user_id': _userId,
+        'amount': amount,
+        'category': sanitizeExpenseCategory(expense['category'] ?? 'other'),
+        'description': expense['description'] ?? '',
+        'payment_method': sanitizePaymentMethod(expense['payment_method'] ?? 'upi'),
+        'expense_date': toDateOnly(expense['expense_date']),
+        'receipt_url': expense['receipt_url'],
+      }, SchemaColumns.expensesWritable)
+    };
 
-    final confirmed = Map<String, dynamic>.from(response);
-
+    // 1. Optimistic cache update
     final cached = LocalCacheService.getCachedData('expenses_$_userId') ?? [];
-    final updated = [confirmed, ...List<Map<String, dynamic>>.from(cached)];
+    final updated = [payload, ...List<Map<String, dynamic>>.from(cached)];
     await LocalCacheService.cacheData('expenses_$_userId', updated);
 
-    // Trigger category budget check async
-    _checkCategoryBudget(confirmed['category'] ?? 'other', _parseAmount(confirmed['amount']));
+    // 2. Queue the insert action
+    await LocalCacheService.queueAction(
+      actionType: 'insert',
+      path: 'expenses',
+      payload: payload,
+    );
 
-    return confirmed;
+    // 3. Trigger category budget check locally
+    _checkCategoryBudget(payload['category'] ?? 'other', _parseAmount(payload['amount']));
+
+    // 4. Trigger background sync immediately (non-blocking)
+    _syncManager.triggerSync();
+
+    return payload;
   }
 
   Future<void> _checkCategoryBudget(String category, double newExpenseAmount) async {

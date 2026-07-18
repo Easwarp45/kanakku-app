@@ -12,6 +12,7 @@ import '../../../core/providers/preferences_provider.dart';
 import '../../../core/utils/multi_currency_helper.dart';
 import '../../../core/providers/financial_summary_provider.dart';
 import '../../../core/utils/error_mapper.dart';
+import '../../../core/database/local_cache_service.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -136,9 +137,38 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   void _logout() async {
-    await ref.read(authServiceProvider).signOut();
-    if (mounted) {
-      context.go('/login');
+    final pendingCount = LocalCacheService.getPendingActions().length;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.bgElevated,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Sign Out', style: TextStyle(color: AppColors.textPrimary)),
+        content: Text(
+          pendingCount > 0
+              ? 'You have $pendingCount unsynced changes. Signing out will discard them permanently. Are you sure you want to sign out?'
+              : 'Are you sure you want to sign out?',
+          style: const TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.accentRose),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Sign Out', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    ) ?? false;
+
+    if (confirm) {
+      await ref.read(authServiceProvider).signOut();
+      if (mounted) {
+        context.go('/login');
+      }
     }
   }
 
